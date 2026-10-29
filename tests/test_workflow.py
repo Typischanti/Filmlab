@@ -159,7 +159,8 @@ def test_roll_analysis_gives_consistent_development():
     settings = [EditSettings(), EditSettings()]
     new = batch.roll_analysis(proxies, settings, ["a", "b"])
     assert all(s.lock_analysis for s in new)
-    assert new[0].analysis.d_lo == new[1].analysis.d_lo and new[0].base.rgb == new[1].base.rgb
+    assert new[0].analysis.d_lo == new[1].analysis.d_lo
+    np.testing.assert_allclose(new[0].base.rgb, new[1].base.rgb, rtol=1e-4)
     outs = [pipeline.render(f.negative, s, output_space="linear_rec2020") for f, s in zip(frames, new)]
     x0, y0, x1, y1 = frames[0].frame
     m0 = outs[0][y0:y1, x0:x1].mean()
@@ -168,6 +169,19 @@ def test_roll_analysis_gives_consistent_development():
     # ensure_analysis respektiert die Sperre
     locked = pipeline.ensure_analysis(proxies[0], new[0].copy(), "other-id")
     assert locked.analysis.d_lo == new[0].analysis.d_lo
+
+
+def test_roll_analysis_robust_to_varying_scan_conditions():
+    """Gleiches Motiv, aber je Bild andere Scan-Belichtung/Weißabgleich
+    (z.B. Kamera-Automatik): nach der Filmstreifen-Analyse identische Positive."""
+    lights = [(1.5, 1.6, 1.7), (1.1, 1.4, 1.9), (0.8, 0.8, 0.8)]
+    frames = [make_negative(160, 240, scan=ScanModel(light=l)) for l in lights]
+    new = batch.roll_analysis([f.negative for f in frames], [EditSettings() for _ in frames], ["a", "b", "c"])
+    outs = [pipeline.render(f.negative, s, output_space="linear_rec2020") for f, s in zip(frames, new)]
+    x0, y0, x1, y1 = frames[0].frame
+    for o in outs[1:]:
+        np.testing.assert_allclose(o[y0:y1, x0:x1], outs[0][y0:y1, x0:x1], atol=1e-3)
+    assert any("variieren" in n for n in new[0].analysis.notes)
 
 
 def _scene_crop(neg, gain):

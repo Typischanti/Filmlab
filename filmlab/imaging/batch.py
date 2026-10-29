@@ -107,19 +107,21 @@ def run_batch(items: list[BatchItem], out_dir: str | Path, opts: ExportOptions, 
 def roll_analysis(proxies: list[np.ndarray], settings: list[EditSettings], source_ids: list[str]) -> list[EditSettings]:
     """Gemeinsame Entwicklung eines Filmstreifens.
 
-    1. Filmgrund je Bild bestimmen; gemeinsamer Filmgrund = Median über alle
-       Bilder mit gefundenem Rand (sonst über alle).
-    2. Schwarz-/Weißpunkte je Bild relativ zu diesem Filmgrund bestimmen;
-       gemeinsame Werte = Median je Kanal.
+    1. Filmgrund je Bild bestimmen. Jedes Bild behält seinen *eigenen*
+       zuverlässig gemessenen Filmgrund: damit kürzen sich auch Unterschiede
+       der Scanbedingungen (Belichtung, Weißabgleich, Lichtquelle) zwischen
+       den Aufnahmen heraus. Bilder ohne zuverlässigen Rand erhalten den
+       Median der zuverlässigen Messungen.
+    2. Schwarz-/Weißpunkte (Dichten relativ zum Filmgrund) je Bild bestimmen;
+       gemeinsame Werte = Median je Kanal – identische Entwicklung des Films.
     3. Analyse in allen Bildern sperren. Belichtungsunterschiede zwischen den
-       Aufnahmen bleiben dadurch erhalten, Farbwiedergabe ist konsistent.
+       Aufnahmen auf dem Film bleiben erhalten, die Farbwiedergabe ist
+       konsistent.
     """
     if not proxies:
         return []
     per = [pipeline.analyze(p, s.copy(), sid) for p, s, sid in zip(proxies, settings, source_ids)]
-    reliable = [a.base_rgb for a in per if a.base_source in ("border", "manual", "fixed") and a.base_rgb]
-    bases = reliable or [a.base_rgb for a in per if a.base_rgb]
-    if not bases:  # Diafilm
+    if all(a.base_rgb is None for a in per):  # Diafilm
         lo = float(np.median([a.slide_lo[0] for a in per]))
         hi = float(np.median([a.slide_hi[0] for a in per]))
         out = []
@@ -130,26 +132,36 @@ def roll_analysis(proxies: list[np.ndarray], settings: list[EditSettings], sourc
             n.lock_analysis = True
             out.append(n)
         return out
-    base = np.median(np.asarray(bases), axis=0)
+    reliable = [np.asarray(a.base_rgb) for a in per if a.base_source in ("border", "manual", "fixed")]
+    fallback = np.median(np.asarray(reliable or [a.base_rgb for a in per]), axis=0)
+    bases = [np.asarray(a.base_rgb) if a.base_source in ("border", "manual", "fixed") else fallback for a in per]
+    notes = [f"Filmstreifen-Analyse über {len(settings)} Bilder (gesperrt)."]
+    if len(reliable) > 1:
+        spread = np.max(np.abs(np.log10(np.asarray(reliable) / np.median(reliable, axis=0))))
+        if spread > 0.01:
+            notes.append("Scanbedingungen variieren zwischen den Bildern (Belichtung/Weißabgleich); "
+                         "der Filmgrund wird je Bild verwendet.")
     fixed = []
-    for p, s, sid in zip(proxies, settings, source_ids):
+    for p, s, sid, b in zip(proxies, settings, source_ids, bases):
         n = s.copy()
-        n.base = FilmBase(mode="fixed", rgb=[float(v) for v in base], offset=list(s.base.offset))
+        n.base = FilmBase(mode="fixed", rgb=[float(v) for v in b], offset=list(s.base.offset))
         fixed.append(pipeline.analyze(p, n, sid))
     d_lo = np.median([a.d_lo for a in fixed], axis=0)
     d_hi = np.median([a.d_hi for a in fixed], axis=0)
     d_hi = np.maximum(d_hi, d_lo + inversion.MIN_RANGE)
     r = inversion.log_range(d_lo, d_hi, settings[0].film_gamma)
     out = []
-    for s, a, sid in zip(settings, fixed, source_ids):
+    for s, a, sid, b, own in zip(settings, fixed, source_ids, bases, per):
         n = s.copy()
-        n.base = FilmBase(mode="fixed", rgb=[float(v) for v in base], offset=list(s.base.offset))
+        n.base = FilmBase(mode="fixed", rgb=[float(v) for v in b], offset=list(s.base.offset))
+        frame_notes = list(notes)
+        if own.base_source == "estimate":
+            frame_notes.append("Kein Filmrand in diesem Bild: Filmgrund aus den übrigen Bildern übernommen.")
         n.analysis = Analysis(
-            key=n.analysis_key(sid), base_rgb=[float(v) for v in base], base_source="fixed",
+            key=n.analysis_key(sid), base_rgb=[float(v) for v in b], base_source="fixed",
             base_confidence=a.base_confidence, frame_rect=a.frame_rect,
             d_lo=[float(v) for v in d_lo], d_hi=[float(v) for v in d_hi], log_range=r,
-            scan_level=float(base.max()), warnings=list(a.warnings),
-            notes=[f"Filmstreifen-Analyse über {len(settings)} Bilder (gesperrt)."],
+            scan_level=float(np.max(b)), warnings=list(a.warnings), notes=frame_notes,
         )
         n.lock_analysis = True
         out.append(n)
