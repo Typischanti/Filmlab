@@ -156,3 +156,26 @@ test('Belichtung lässt Schwarz schwarz', () => {
     assert.ok(Math.abs(f(0)) < 0.02, `EV ${ev}: ${f(0)}`);
   }
 });
+
+test('Bildfeld wird trotz Filmhalter und Filmrand erkannt', async () => {
+  const { detectFrameInImage } = await import('../js/core/autocrop.js');
+  const W = 300, H = 200;
+  const img = createImage(W, H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 3;
+      let px;
+      if (x < 40 || x >= 260) px = [2000, 2000, 2200];                       // Halter
+      else if (x < 55 || x >= 245 || y < 15 || y >= 185) px = [64000, 58000, 47000]; // Filmbasis
+      else {
+        const t = (x * 7 + y * 13) % 100 / 100;                             // Bildinhalt
+        px = [30000 + t * 20000, 16000 + t * 15000, 5000 + t * 10000];
+      }
+      img.data.set(px, i);
+    }
+  }
+  const r = detectFrameInImage(img, 'color');
+  assert.ok(r, 'Rahmen muss erkannt werden');
+  assert.ok(Math.abs(r.x - 55 / W) < 0.02 && Math.abs(r.x + r.w - 245 / W) < 0.02, JSON.stringify(r));
+  assert.ok(Math.abs(r.y - 15 / H) < 0.02 && Math.abs(r.y + r.h - 185 / H) < 0.02, JSON.stringify(r));
+});

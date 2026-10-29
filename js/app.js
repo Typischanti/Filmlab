@@ -8,6 +8,7 @@ import {
   makeMapping, extract, fitDownscale, orientedSize, FULL_RECT, cropPixelSize,
 } from './core/geometry.js';
 import { renderFull, resolveLevels, analysisImage, PREVIEW_MAX } from './core/render.js';
+import { detectFrame } from './core/autocrop.js';
 import { BUILTIN_PRESETS, applyLook, extractLook, loadUserPresets, saveUserPresets } from './core/presets.js';
 import { decodeFile, encodeOutput, extensionFor, downloadBlob, pickDirectory, writeToDirectory } from './io.js';
 import { el, getPath, setPath, slider, segmented, select, checkbox, section, TRACKS, bandTrack } from './ui/controls.js';
@@ -155,6 +156,14 @@ async function prepareNew(entry, dec) {
   if (entry.restored || entry.prepared) return;
   entry.prepared = true;
   const s = entry.settings;
+  // Bildfeld erkennen, damit Filmhalter und Filmrand die Analyse nicht stören
+  if (!s.geometry.crop) {
+    const rect = detectFrame(dec.preview, s);
+    if (rect) {
+      s.geometry.crop = rect;
+      entry.autoCropped = true;
+    }
+  }
   const levels = resolveLevels(dec.preview, s);
   s.film.levels = levels;
   s.tone.exposure = autoExposure(analysisImage(dec.preview, s), s, levels);
@@ -174,6 +183,10 @@ async function selectImage(index) {
     const dec = await getDecoded(entry);
     if (active() !== entry) return;
     await prepareNew(entry, dec);
+    if (entry.autoCropped) {
+      entry.autoCropped = false;
+      toast('Bildfeld automatisch erkannt – anpassen mit „Zuschneiden“ (C).');
+    }
     view.key = '';
     view.lutKey = '';
     syncPanel();
@@ -684,6 +697,8 @@ function buildPanel() {
     el('div', { class: 'row' },
       el('button', { class: 'btn small', type: 'button', onclick: () => setMode(state.mode === 'crop' ? 'edit' : 'crop') }, 'Zuschnitt bearbeiten (C)'),
       el('button', { class: 'btn small', type: 'button', onclick: () => { const s = S(); if (!s) return; s.geometry.crop = null; s.geometry.angle = 0; commit(); afterExternalChange(); } }, 'Zuschnitt entfernen')),
+    el('div', { class: 'row' },
+      el('button', { class: 'btn small', type: 'button', onclick: autoFrame, title: 'Filmhalter, Filmrand und Leuchtpult automatisch wegschneiden' }, '⌖ Bildfeld automatisch erkennen')),
   ], () => resetKeys('geometry'));
 
   root.append(...Object.values(sections));
@@ -725,6 +740,22 @@ function doAutoExposure() {
   s.tone.exposure = autoExposure(analysisImage(dec.preview, s), s, levels);
   commit();
   afterExternalChange();
+}
+
+function autoFrame() {
+  const e = active();
+  const dec = e && cache.get(e.id);
+  if (!dec) return;
+  const rect = detectFrame(dec.preview, e.settings);
+  if (!rect) {
+    toast('Kein Rahmen erkannt – das Bild scheint bereits randlos zu sein.');
+    return;
+  }
+  e.settings.geometry.crop = rect;
+  e.settings.geometry.aspect = 'free';
+  commit();
+  afterExternalChange();
+  toast('Bildfeld erkannt.');
 }
 
 function rotate(deg) {
@@ -928,8 +959,14 @@ function initCanvas() {
       const s = entry.settings;
       if (state.mode === 'pickBase') {
         s.film.base = codes.map((c) => codeToLinear(c, s.film.inputGamma));
-        s.film.blackMode = 'base';
-        toast('Filmbasis gemessen – Schatten werden jetzt farbneutral abgestimmt.');
+        if (Math.max(...codes) > 64500) {
+          // übersteuerte Basis liefert falsche Farben -> Automatik behalten
+          s.film.blackMode = 'auto';
+          toast('Die Filmbasis ist im Scan übersteuert (ein Kanal bei 100 %). Der automatische Schwarzpunkt bleibt aktiv – beim nächsten Scan etwas knapper belichten.', true, 7000);
+        } else {
+          s.film.blackMode = 'base';
+          toast('Filmbasis gemessen – Schatten werden jetzt farbneutral abgestimmt.');
+        }
       } else {
         const levels = ensureLevels(entry, cache.get(entry.id));
         s.wb = neutralWb(codes, s, levels);

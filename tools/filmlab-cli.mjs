@@ -10,12 +10,14 @@
 //   --type color|bw|positive
 //   --exposure <EV>  --contrast <n>
 //   --no-auto             keine automatische Belichtung (Standard: wie in der App)
+//   --no-crop             Bildfeld nicht automatisch erkennen
 //   --max <px>            längste Kante begrenzen
 import fs from 'node:fs';
 import path from 'node:path';
 import { decodeTiff, encodeTiff16 } from '../js/core/tiff.js';
 import { defaultSettings, normalizeSettings, floatToU16, autoExposure } from '../js/core/pipeline.js';
 import { renderFull, resolveLevels, analysisImage } from '../js/core/render.js';
+import { detectFrame } from '../js/core/autocrop.js';
 import { encodePNG } from './png.mjs';
 
 function parseArgs(argv) {
@@ -26,6 +28,7 @@ function parseArgs(argv) {
     if (a.startsWith('--')) {
       const key = a.slice(2);
       if (key === 'no-auto') opt.noAuto = true;
+      else if (key === 'no-crop') opt.noCrop = true;
       else opt[key] = argv[++i];
     } else files.push(a);
   }
@@ -52,6 +55,7 @@ for (const file of files) {
   const buf = fs.readFileSync(file);
   const src = await decodeTiff(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
   const settings = structuredClone(base);
+  if (!opt.noCrop && !settings.geometry.crop) settings.geometry.crop = detectFrame(src, settings);
   const levels = resolveLevels(src, settings);
   // wie die App: automatische Belichtung, sofern nichts vorgegeben ist
   if (!opt.noAuto && !opt.settings && opt.exposure == null) settings.tone.exposure = autoExposure(analysisImage(src, settings), settings, levels);

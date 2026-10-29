@@ -145,9 +145,12 @@ export function analyze(img, settings) {
   const loCut = is8Bit(d) ? 2 * 257 : 16;
   const hiCut = CODE_MAX - 64; // Ausgebrannt (z. B. Perforationslöcher)
   const bw = film.type === 'bw';
+  const holderCut = film.type === 'positive' ? 0 : holderThreshold(d);
   for (let y = by; y < H - by; y++) {
     let i = (y * W + bx) * 3;
     for (let x = bx; x < W - bx; x++, i += 3) {
+      // Filmhalter/Klammern: viel dunkler als jede Stelle auf dem Film
+      if (holderCut && Math.max(d[i], d[i + 1], d[i + 2]) < holderCut) continue;
       if (bw) {
         const g = grayCode(d[i], d[i + 1], d[i + 2]);
         if (g > loCut && g < hiCut) hists[0][g >> shift]++;
@@ -209,6 +212,16 @@ export function analyze(img, settings) {
     }
   }
   return { lo, hi };
+}
+
+// Schwelle für „zu dunkel für Film“: Selbst die dichteste Stelle eines
+// Negativs lässt im hellsten Kanal noch deutlich Licht durch.
+function holderThreshold(data) {
+  const step = Math.max(1, Math.floor(data.length / 3 / 20000)) * 3;
+  const m = [];
+  for (let i = 0; i < data.length; i += step) m.push(Math.max(data[i], data[i + 1], data[i + 2]));
+  m.sort((a, b) => a - b);
+  return m[Math.floor(m.length * 0.99)] * 0.12;
 }
 
 // Stichprobe: Sind alle Werte Vielfache von 257 (also aus 8 Bit hochskaliert)?

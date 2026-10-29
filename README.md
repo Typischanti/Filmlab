@@ -50,7 +50,9 @@ abgestimmt.
 **Film & Scan**
 - Farbnegativ (C-41), S/W-Negativ, Dia/Positiv (E-6)
 - Gamma-kodierte oder lineare Scans (z. B. aus RAW entwickelte Linear-TIFFs)
-- Filmbasis-Pipette, Schwarz-/Weiß-Clipping, Analyse-Rand
+- **Automatische Bildfeld-Erkennung**: Filmhalter, Klammern, Filmrand und
+  durchscheinendes Leuchtpult werden beim Import weggeschnitten
+- Filmbasis-Pipette (mit Warnung bei übersteuerter Basis), Schwarz-/Weiß-Clipping, Analyse-Rand
 - Gekoppelte oder kanalweise Analyse, Kanal-Feinabstimmung (Schwarz-/Weißpunkt R/G/B)
 - **Analyse sperren** + **Auf alle**: identische Abstimmung für eine ganze Filmrolle
 
@@ -74,6 +76,11 @@ abgestimmt.
 - Export als JPEG, PNG oder **16-Bit-TIFF**, in Originalgröße oder verkleinert,
   einzeln oder alle Bilder in einen Ordner; Einstellungen optional als JSON
 
+**Tipps für Kamera-Scans:** Möglichst RAW fotografieren und als 16-Bit-TIFF
+entwickeln. So belichten, dass der unbelichtete Filmrand in keinem Kanal
+ausfrisst (Histogramm der Kamera prüfen) – sonst gehen Farbinformationen in
+den Schatten verloren.
+
 **Formate:** TIFF (8/16/32 Bit; unkomprimiert, LZW, ZIP, PackBits; Strips oder
 Kacheln), JPEG, PNG, WebP. Kamera-RAW-Dateien bitte vorher als (lineares)
 16-Bit-TIFF entwickeln.
@@ -91,7 +98,7 @@ node tools/filmlab-cli.mjs scan.tif --settings rolle.filmlab.json --format png16
 
 Optionen: `--format tif|png|png16`, `--settings <json aus der App>`,
 `--type color|bw|positive`, `--exposure <EV>`, `--contrast <n>`,
-`--no-auto`, `--max <px>`, `--out <ordner>`.
+`--no-auto`, `--no-crop`, `--max <px>`, `--out <ordner>`.
 
 ## Entwicklung
 
