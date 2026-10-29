@@ -232,3 +232,23 @@ test('Kamera-Scan-Korrektur wärmt leicht und Pipette bleibt neutral', () => {
   const r = luts[0][codes[0]], g = luts[1][codes[1]], b = luts[2][codes[2]];
   assert.ok(Math.max(r, g, b) - Math.min(r, g, b) < 0.01, `${r} ${g} ${b}`);
 });
+
+test('Eingebelichtetes Datum verfälscht den Weißpunkt nicht', () => {
+  const img = syntheticNegative(200, 50);
+  // kleiner „Datumsstempel“: im Rotkanal sehr dicht, sonst dünn (~0,4 % der Fläche)
+  for (let y = 40; y < 44; y++) {
+    for (let x = 150; x < 160; x++) {
+      const i = (y * 200 + x) * 3;
+      img.data[i] = 5000; img.data[i + 1] = 30000; img.data[i + 2] = 30000;
+    }
+  }
+  const s = defaultSettings();
+  s.film.border = 0;
+  s.color.vibrance = 0;
+  s.film.scanCorrection = false;
+  const levels = analyze(img, s);
+  const out = processToFloat(img, s, levels, buildLUTs(s, levels));
+  const i = (10 * 200 + 185) * 3; // hellste Stelle des Graukeils
+  assert.ok(Math.max(out[i], out[i + 1], out[i + 2]) - Math.min(out[i], out[i + 1], out[i + 2]) < 0.04,
+    `Weiß nicht neutral: ${out[i]} ${out[i + 1]} ${out[i + 2]}`);
+});

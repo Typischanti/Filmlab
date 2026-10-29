@@ -236,6 +236,13 @@ export function analyze(img, settings) {
     }
   }
 
+  // Weißpunkt-Farbbalance an den insgesamt hellsten Bildstellen: Ein Kanal
+  // allein darf den Weißpunkt nicht bestimmen (z. B. eingebelichtetes Datum,
+  // Reflexe in einer Farbe) – sonst wird z. B. eine weiße Wand blau.
+  if (film.type === 'color' && !film.linked && film.jointWhite !== false) {
+    jointWhite(img, lo, hi, film, hiCut, holderCut, bx, by, pw);
+  }
+
   // Gekoppelt: gemeinsamer Umfang für alle Kanäle, die Farbbalance des
   // Scans bleibt erhalten (Dias, bereits gefilterte Scans).
   if (film.linked && film.type !== 'bw') {
@@ -263,6 +270,44 @@ export function analyze(img, settings) {
   }
   if (clipMask) clipK = learnClipOffsets(img, { lo, hi }, film, clipMask, hiCut, holderCut, bx, by);
   return clipInfo ? { lo, hi, clip: clipInfo, clipFrac, clipK } : { lo, hi };
+}
+
+function jointWhite(img, lo, hi, film, clipCode, holderCut, bx, by, pw) {
+  const dt = densityTable(film.inputGamma, film.type);
+  const W = img.width, H = img.height, d = img.data;
+  const z = [];
+  for (let y = by; y < H - by; y++) {
+    let i = (y * W + bx) * 3;
+    for (let x = bx; x < W - bx; x++, i += 3) {
+      if (d[i] >= clipCode || d[i + 1] >= clipCode || d[i + 2] >= clipCode) continue;
+      if (holderCut && Math.max(d[i], d[i + 1], d[i + 2]) < holderCut) continue;
+      const a = (dt[d[i]] - lo[0]) / (hi[0] - lo[0]);
+      const b = (dt[d[i + 1]] - lo[1]) / (hi[1] - lo[1]);
+      const c = (dt[d[i + 2]] - lo[2]) / (hi[2] - lo[2]);
+      z.push(a, b, c, (a + b + c) / 3);
+    }
+  }
+  const n = z.length / 4;
+  if (n < 1000) return;
+  // hellste Stellen nach mittlerer Helligkeit über alle Kanäle
+  const means = new Float32Array(n);
+  for (let k = 0; k < n; k++) means[k] = z[k * 4 + 3];
+  const sorted = Float32Array.from(means).sort();
+  const th = sorted[Math.floor(n * (1 - Math.max(pw * 4, 0.004)))];
+  const per = [[], [], []];
+  for (let k = 0; k < n; k++) {
+    if (means[k] < th) continue;
+    for (let c = 0; c < 3; c++) per[c].push(z[k * 4 + c]);
+  }
+  if (per[0].length < 20) return;
+  const med = per.map((v) => { v.sort((p, q) => p - q); return v[v.length >> 1]; });
+  const t = (med[0] + med[1] + med[2]) / 3;
+  if (t <= 0.2) return;
+  for (let c = 0; c < 3; c++) {
+    // Kanal so skalieren, dass die hellsten Stellen in allen Kanälen gleich hell sind
+    const f = clamp(med[c] / t, 0.75, 1.33);
+    hi[c] = lo[c] + (hi[c] - lo[c]) * f;
+  }
 }
 
 // Automatische Graubalance: Pixel, die nach der Umwandlung schon fast
