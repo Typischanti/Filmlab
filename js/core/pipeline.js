@@ -143,7 +143,9 @@ export function analyze(img, settings) {
   const d = img.data;
   // Bei 8-Bit-Quellen sind die untersten Stufen reines Quantisierungsrauschen
   const loCut = is8Bit(d) ? 2 * 257 : 16;
-  const hiCut = CODE_MAX - 64; // Ausgebrannt (z. B. Perforationslöcher)
+  const eight = is8Bit(d);
+  const hiCut = eight ? 254 * 257 : CODE_MAX - 64; // ausgebrannt bzw. beschnitten
+  const clipped = [0, 0, 0];
   const bw = film.type === 'bw';
   const holderCut = film.type === 'positive' ? 0 : holderThreshold(d);
   for (let y = by; y < H - by; y++) {
@@ -158,6 +160,7 @@ export function analyze(img, settings) {
         for (let c = 0; c < 3; c++) {
           const v = d[i + c];
           if (v > loCut && v < hiCut) hists[c][v >> shift]++;
+          else if (v >= hiCut) clipped[c]++;
         }
       }
     }
@@ -165,6 +168,11 @@ export function analyze(img, settings) {
   if (bw) { hists[1] = hists[0]; hists[2] = hists[0]; }
 
   const dt = densityTable(film.inputGamma, film.type);
+  const count = (h) => {
+    let t = 0;
+    for (let i = 0; i < bins; i++) t += h[i];
+    return t;
+  };
   const pct = (h, p) => {
     let total = 0;
     for (let i = 0; i < bins; i++) total += h[i];
@@ -179,6 +187,8 @@ export function analyze(img, settings) {
   };
   const lo = [0, 0, 0];
   const hi = [0, 0, 0];
+  let clipInfo = null;
+  let clipFrac = null;
   const pb = film.clipBlack / 100;
   const pw = film.clipWhite / 100;
   for (let c = 0; c < 3; c++) {
@@ -188,6 +198,35 @@ export function analyze(img, settings) {
     lo[c] = dt[a];
     hi[c] = dt[b];
     if (hi[c] - lo[c] < 0.05) hi[c] = lo[c] + 0.05;
+  }
+
+  // Ist ein Kanal an der dünnen Seite (Schatten des Negativs) im Scan
+  // beschnitten, liegt sein gemessener Schwarzpunkt am Clipping statt am
+  // echten Wert. Dann wird er aus einem Perzentil oberhalb des Clippings
+  // und dem Abstand geschätzt, den die unbeschnittenen Kanäle zwischen
+  // diesem Perzentil und ihrem Schwarzpunkt haben.
+  if (film.type !== 'positive' && !bw && !film.linked) {
+    const frac = [0, 1, 2].map((c) => clipped[c] / Math.max(1, clipped[c] + count(hists[c])));
+    const bad = frac.map((f) => f > 0.003);
+    if (bad.some(Boolean) && !bad.every(Boolean)) {
+      const P = Math.min(0.3, Math.max(...frac) + 0.01);
+      const rlo = [0, 1, 2].map((c) => {
+        const n = count(hists[c]);
+        const fromTop = P * (n + clipped[c]) - clipped[c];
+        const v = pct(hists[c], 1 - Math.max(0, fromTop) / Math.max(1, n));
+        return v == null ? lo[c] : dt[v];
+      });
+      let off = 0, k = 0;
+      for (let c = 0; c < 3; c++) if (!bad[c]) { off += lo[c] - rlo[c]; k++; }
+      off /= k;
+      for (let c = 0; c < 3; c++) {
+        if (bad[c]) lo[c] = Math.min(lo[c], rlo[c] + off);
+        if (hi[c] - lo[c] < 0.05) hi[c] = lo[c] + 0.05;
+      }
+      // beim Rendern werden die beschnittenen Werte rekonstruiert
+      clipInfo = bad.map((b) => (b ? hiCut : 0));
+      clipFrac = frac;
+    }
   }
 
   // Gekoppelt: gemeinsamer Umfang für alle Kanäle, die Farbbalance des
@@ -211,7 +250,7 @@ export function analyze(img, settings) {
       if (hi[c] - lo[c] < 0.05) hi[c] = lo[c] + 0.05;
     }
   }
-  return { lo, hi };
+  return clipInfo ? { lo, hi, clip: clipInfo, clipFrac } : { lo, hi };
 }
 
 // Schwelle für „zu dunkel für Film“: Selbst die dichteste Stelle eines
@@ -651,6 +690,30 @@ function applyGrain(buf, w, h, detail, scale, origin) {
   }
 }
 
+// Im Scan beschnittene Kanäle (Negativ: zu hell -> echte Dichte unbekannt,
+// aber sicher geringer, also im Positiv dunkler): Wert aus den intakten
+// Kanälen schätzen, nie heller als gemessen, weich übergeblendet.
+function reconstructClipped(buf, codes, n, clip) {
+  const bad = clip.map((c) => c > 0);
+  const good = [0, 1, 2].filter((c) => !bad[c]);
+  if (!good.length) return;
+  const ramp = clip.map((c) => (c > 0 ? Math.max(1, c * 0.04) : 1));
+  for (let i = 0; i < n * 3; i += 3) {
+    let other = 0;
+    for (const c of good) other += buf[i + c];
+    other /= good.length;
+    for (let c = 0; c < 3; c++) {
+      if (!bad[c]) continue;
+      const v = codes[i + c];
+      const start = clip[c] - ramp[c];
+      if (v <= start) continue;
+      const w = Math.min(1, (v - start) / ramp[c]);
+      const y = buf[i + c];
+      buf[i + c] = y + w * (Math.min(y, other) - y);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Rendern
 
@@ -673,6 +736,7 @@ export function processToFloat(img, settings, levels, luts, opts = {}) {
       buf[i + 2] = lb[d[i + 2]];
     }
   }
+  if (levels.clip && settings.film.type !== 'bw') reconstructClipped(buf, d, n, levels.clip);
   if (colorOpsActive(settings)) applyColor(buf, n, prepareColor(settings));
   const scale = opts.scale ?? 1;
   if (settings.detail.sharpen > 0) applySharpen(buf, img.width, img.height, settings.detail, scale);

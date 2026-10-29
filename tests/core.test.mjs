@@ -179,3 +179,18 @@ test('Bildfeld wird trotz Filmhalter und Filmrand erkannt', async () => {
   assert.ok(Math.abs(r.x - 55 / W) < 0.02 && Math.abs(r.x + r.w - 245 / W) < 0.02, JSON.stringify(r));
   assert.ok(Math.abs(r.y - 15 / H) < 0.02 && Math.abs(r.y + r.h - 185 / H) < 0.02, JSON.stringify(r));
 });
+
+test('Beschnittener Kanal im Scan: Schwarzpunkt wird geschätzt und rekonstruiert', () => {
+  // Graukeil, Rotkanal in den dünnen Bereichen (Schatten) bei 100 % abgeschnitten
+  const img = syntheticNegative(200, 10);
+  for (let i = 0; i < img.data.length; i += 3) img.data[i] = Math.min(65535, Math.round(img.data[i] * 1.6));
+  const s = defaultSettings();
+  s.film.border = 0;
+  s.color.vibrance = 0;
+  const levels = analyze(img, s);
+  assert.ok(levels.clip && levels.clip[0] > 0 && !levels.clip[1], 'Clipping im Rotkanal muss erkannt werden');
+  const out = processToFloat(img, s, levels, buildLUTs(s, levels));
+  // Mitteltöne bleiben neutral
+  const i = (5 * 200 + 120) * 3;
+  assert.ok(Math.abs(out[i] - out[i + 1]) < 0.05 && Math.abs(out[i + 1] - out[i + 2]) < 0.05, `${out[i]} ${out[i + 1]} ${out[i + 2]}`);
+});

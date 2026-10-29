@@ -459,7 +459,14 @@ function updateStatus() {
     const g = e.settings.geometry;
     const dec = cache.get(e.id);
     const [cw, ch] = dec ? cropPixelSize(dec.full, g) : [e.info.width, e.info.height];
-    $('statusInfo').textContent = `${cw} × ${ch} px · ${e.info.bitDepth} Bit`;
+    let txt = `${cw} × ${ch} px · ${e.info.bitDepth} Bit`;
+    const lv = e.settings.film.levels;
+    if (lv?.clip) {
+      const names = ['Rot', 'Grün', 'Blau'];
+      const parts = lv.clip.map((c, i) => (c ? `${names[i]} ${(lv.clipFrac[i] * 100).toFixed(1).replace('.', ',')} %` : null)).filter(Boolean);
+      txt += ` · ⚠ im Scan beschnitten: ${parts.join(', ')} (wird rekonstruiert)`;
+    }
+    $('statusInfo').textContent = txt;
   } else {
     $('statusInfo').textContent = '';
   }
