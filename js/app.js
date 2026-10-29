@@ -625,6 +625,7 @@ function buildPanel() {
     el('div', { class: 'row' }, el('button', { class: 'btn small', type: 'button', onclick: doAutoExposure }, 'Auto-Belichtung')),
     bind('tone.exposure', { label: 'Belichtung', min: -3, max: 3, step: 0.05, unit: ' EV', digits: 2, track: TRACKS.exposure }),
     bind('tone.contrast', { label: 'Kontrast', min: -100, max: 100, step: 1 }),
+    bind('tone.rolloff', { label: 'Lichter-Rolloff', min: 0, max: 100, step: 1, title: 'Wie weich die Lichter in Weiß auslaufen – höher = früherer, sanfterer Übergang (Laborscanner-Charakter), 0 = knapp und hell' }),
     bind('tone.range', { label: 'Tonumfang (Papiergradation)', min: 4, max: 14, step: 0.1, unit: ' Bl.', title: 'Wie viele Blendenstufen der Negativumfang abbildet – höher = kräftiger' }),
     bind('tone.highlights', { label: 'Lichter', min: -100, max: 100, step: 1 }),
     bind('tone.shadows', { label: 'Tiefen', min: -100, max: 100, step: 1 }),

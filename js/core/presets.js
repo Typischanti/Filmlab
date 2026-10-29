@@ -12,6 +12,26 @@ export const BUILTIN_PRESETS = [
     look: { tone: { contrast: 0, highlights: 0, shadows: 0 }, color: { vibrance: 0, saturation: 0 } },
   },
   {
+    // Nach Laborberichten: flachere Kurve, sanftes Auslaufen in Lichter und
+    // Schatten, leicht angehobene neutrale Schatten, kaum Clipping.
+    id: 'noritsu', name: 'Laborscan weich (Noritsu-Anmutung)',
+    look: {
+      tone: { contrast: -8, rolloff: 75, highlights: -15, shadows: 18, blacks: 12 },
+      color: { vibrance: 14, saturation: -4 },
+      grading: { midtones: { hue: 20, sat: 5 } },
+    },
+  },
+  {
+    // Nach Laborberichten: steilere Kurve, tiefe Schatten, Lichter näher an
+    // Weiß, goldene Hauttöne und kühlere Schatten, kräftigere Farben.
+    id: 'frontier', name: 'Laborscan kräftig (Frontier-Anmutung)',
+    look: {
+      tone: { contrast: 22, rolloff: 30, highlights: -5, shadows: 0, blacks: -8 },
+      color: { vibrance: 30, saturation: 4 },
+      grading: { shadows: { hue: 195, sat: 9 }, highlights: { hue: 48, sat: 10 } },
+    },
+  },
+  {
     id: 'vivid', name: 'Kräftig',
     look: { tone: { contrast: 30, highlights: -15, shadows: 5, blacks: -8 }, color: { vibrance: 35, saturation: 5 } },
   },

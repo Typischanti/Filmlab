@@ -84,7 +84,9 @@ test('Pipette setzt neutralen Weißabgleich', () => {
 test('Tonkurve ist monoton und bildet 0..1 ab', () => {
   const f = toneFunction(defaultSettings().tone);
   assert.ok(Math.abs(f(0)) < 0.03);
-  assert.ok(Math.abs(f(1) - 1) < 0.03);
+  // Weißpunkt knapp unter Weiß (weiche Schulter), Spitzlichter nie über 1
+  assert.ok(f(1) > 0.85 && f(1) < 0.98, `f(1) = ${f(1)}`);
+  assert.ok(f(1.5) <= 1 && f(1.5) > f(1));
   let prev = -Infinity;
   for (let i = 0; i <= 200; i++) {
     const v = f(-0.2 + (1.4 * i) / 200);

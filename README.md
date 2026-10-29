@@ -34,8 +34,10 @@ Statt das Bild einfach zu invertieren, arbeitet Filmlab wie ein Fotolabor im
    gemessene **Filmbasis** die Farbneutralität der Schatten.
 3. Weißabgleich und Belichtung wirken als Verschiebung im Belichtungsraum –
    physikalisch wie ein Farbfilter bzw. eine längere Belichtung im Vergrößerer.
-4. Eine Papiergradation bildet die Log-Belichtung auf das Bild ab: weiche
-   Schulter in den Lichtern, sanfte S-Kurve, Schwarz bleibt schwarz.
+4. Eine Papiergradation bildet die Log-Belichtung auf das Bild ab: Die Lichter
+   werden wie bei Fotopapier und Laborscannern im Belichtungsraum weich
+   komprimiert und laufen asymptotisch gegen Weiß (einstellbar über
+   „Lichter-Rolloff“), sanfte S-Kurve, Schwarz bleibt schwarz.
 5. Sättigung und Dynamik laufen farbtonerhaltend und weich gegen die
    Gamut-Grenze, statt hart zu clippen – kräftig, aber nie grell.
 6. Eine Auto-Belichtung legt die Mitteltöne neutral, ohne Spitzlichter
@@ -63,7 +65,7 @@ abgestimmt.
 
 **Bearbeitung**
 - Weißabgleich (Pipette, Temperatur, Tönung)
-- Belichtung, Kontrast, Tonumfang, Lichter, Tiefen, Weiß, Schwarz, Auto-Belichtung
+- Belichtung, Kontrast, Lichter-Rolloff, Tonumfang, Lichter, Tiefen, Weiß, Schwarz, Auto-Belichtung
 - Dynamik (schont Hauttöne) und Sättigung
 - Farbmischer (HSL) für 8 Farbbereiche
 - Color Grading für Tiefen, Mitteltöne und Lichter
@@ -74,7 +76,8 @@ abgestimmt.
 
 **Arbeitsablauf**
 - Filmstreifen mit mehreren Bildern, Kopieren/Einfügen von Einstellungen
-- Look-Presets (mitgeliefert und eigene)
+- Look-Presets (mitgeliefert und eigene), u. a. „Laborscan weich“ (Noritsu-Anmutung)
+  und „Laborscan kräftig“ (Frontier-Anmutung)
 - Unbegrenztes Rückgängig/Wiederholen pro Bild, Einstellungen werden automatisch
   im Browser gespeichert
 - Vorher/Nachher, Clipping-Warnung, Histogramm, Pixelwerte, 100 %-Ansicht

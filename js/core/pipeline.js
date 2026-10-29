@@ -56,6 +56,7 @@ export function defaultSettings() {
     },
     tone: {
       exposure: 0,            // Blendenstufen
+      rolloff: DEFAULT_ROLLOFF, // Weichheit des Übergangs in die Lichter (0..100)
       contrast: 10,           // -100..100
       range: 8,               // Tonumfang in Blendenstufen (Negativ-Gradation)
       highlights: -10,
@@ -367,13 +368,28 @@ export function contrastK(contrast) {
 }
 
 // Basiskurve: normierte Log-Belichtung x -> Anzeigewert (sRGB, 0..1).
+// Schulter wie beim Fotopapier bzw. bei Laborscannern: Die Lichter werden
+// im Belichtungsraum (in Blendenstufen) weich komprimiert und laufen
+// asymptotisch gegen Weiß, statt hart abzuschneiden – auch Reflexe und
+// angehobene Belichtung clippen nicht. rolloff 0..100 legt fest, wie viele
+// Blenden unter Weiß die Kompression beginnt (0,3–2,5).
+export const DEFAULT_ROLLOFF = 45;
+
+export function shoulderFunction(rolloff) {
+  const K = 0.3 + (clamp(rolloff, 0, 100) / 100) * 2.2;
+  const kneeLin = Math.pow(2, -K);
+  return (lin) => {
+    if (lin <= kneeLin) return lin;
+    const ev = Math.log2(lin) + K;
+    return Math.pow(2, -K + K * Math.tanh(ev / K));
+  };
+}
+
 export function toneFunction(tone) {
   const R = Math.max(1, tone.range) * LOG2;
   const floor = Math.pow(10, -R);
   const gain = Math.pow(2, tone.exposure);
-  const knee = 0.82;
-  const shoulder = (v) => (v <= knee ? v : knee + (1 - knee) * Math.tanh((v - knee) / (1 - knee)));
-  const norm = 1 / shoulder(1);
+  const shoulder = shoulderFunction(tone.rolloff ?? DEFAULT_ROLLOFF);
   const k = contrastK(tone.contrast);
   const p = 0.45;
   const sh = tone.shadows / 100;
@@ -382,9 +398,8 @@ export function toneFunction(tone) {
   const bl = tone.blacks / 100;
   return (x) => {
     // Belichtung multiplikativ im linearen Licht: Schwarz bleibt Schwarz
-    const lin = (gain * (Math.pow(10, (x - 1) * R) - floor)) / (1 - floor);
-    let v = lin < 0 ? lin * 12.92 : linearToSrgb(lin);
-    v = shoulder(v) * norm;
+    const lin = shoulder((gain * (Math.pow(10, (x - 1) * R) - floor)) / (1 - floor));
+    const v = lin < 0 ? lin * 12.92 : linearToSrgb(lin);
     // S-Kurve um den Mittelton-Drehpunkt
     let y;
     if (v <= 0) y = v * k;
@@ -957,7 +972,7 @@ export function autoExposure(img, settings, levels) {
   let bestErr = Math.abs(base.med - target);
   for (let ev = -2; ev <= 2.001; ev += 0.1) {
     const st = stats(ev);
-    if (ev > 0 && (base.hi > 0.95 || st.hi > 0.97)) continue;  // Lichter schützen
+    if (ev > 0 && (base.hi > 0.9 || st.hi > 0.92)) continue;   // Lichter schützen
     const err = Math.abs(st.med - target);
     if (err < bestErr - 1e-4) { bestErr = err; best = ev; }
   }
