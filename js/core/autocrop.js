@@ -115,6 +115,48 @@ export function detectFrameInImage(img, type) {
       if ((k = skip(y1 - 1, -1, rowFrac, H))) { y1 -= k; moved = true; }
     }
   }
+  // Mehrere Bilder im Scan (Nachbarbilder des Filmstreifens): an den
+  // Stegen aus Filmbasis trennen und das größte, bei Gleichstand das
+  // mittigste Bildfeld wählen.
+  const pickSegment = (a, b, frac, size) => {
+    const minGap = Math.max(2, Math.round(size * 0.008));
+    const segs = [];
+    let start = -1, gap = 0;
+    for (let p = a; p <= b; p++) {
+      const empty = p === b || frac(p) > TH;
+      if (!empty) {
+        if (start < 0) start = p;
+        gap = 0;
+      } else if (start >= 0) {
+        gap++;
+        if (gap >= minGap || p === b) {
+          segs.push([start, p - gap + 1]);
+          start = -1;
+        }
+      }
+    }
+    if (segs.length < 2) return [a, b];
+    const len = (sg) => sg[1] - sg[0];
+    const maxLen = Math.max(...segs.map(len));
+    const mid = size / 2;
+    const best = segs
+      .filter((sg) => len(sg) >= maxLen * 0.85)
+      .sort((p, q) => Math.abs((p[0] + p[1]) / 2 - mid) - Math.abs((q[0] + q[1]) / 2 - mid))[0];
+    return best;
+  };
+  for (let pass = 0; pass < 2; pass++) {
+    [x0, x1] = pickSegment(x0, x1, colFrac, W);
+    [y0, y1] = pickSegment(y0, y1, rowFrac, H);
+    for (let iter = 0, moved = true; moved && iter < 30; iter++) {
+      moved = false;
+      while (x1 - x0 > W * 0.1 && colFrac(x0) > TH) { x0++; moved = true; }
+      while (x1 - x0 > W * 0.1 && colFrac(x1 - 1) > TH) { x1--; moved = true; }
+      while (y1 - y0 > H * 0.1 && rowFrac(y0) > TH) { y0++; moved = true; }
+      while (y1 - y0 > H * 0.1 && rowFrac(y1 - 1) > TH) { y1--; moved = true; }
+    }
+  }
+  if (x1 - x0 <= W * 0.1 || y1 - y0 <= H * 0.1) return null;
+
   let k;
   if ((k = settle(x0, 1, colFrac, W))) x0 += k;
   if ((k = settle(x1 - 1, -1, colFrac, W))) x1 -= k;

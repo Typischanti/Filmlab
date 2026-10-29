@@ -194,3 +194,22 @@ test('Beschnittener Kanal im Scan: Schwarzpunkt wird geschätzt und rekonstruier
   const i = (5 * 200 + 120) * 3;
   assert.ok(Math.abs(out[i] - out[i + 1]) < 0.05 && Math.abs(out[i + 1] - out[i + 2]) < 0.05, `${out[i]} ${out[i + 1]} ${out[i + 2]}`);
 });
+
+test('Bei Nachbarbildern im Scan wird das mittlere, größte Bild gewählt', async () => {
+  const { detectFrameInImage } = await import('../js/core/autocrop.js');
+  const W = 400, H = 200;
+  const img = createImage(W, H);
+  const isImage = (x) => (x >= 10 && x < 60) || (x >= 80 && x < 320) || (x >= 340 && x < 395);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const t = ((x * 7 + y * 13) % 100) / 100;
+      const px = isImage(x) && y >= 12 && y < 188
+        ? [30000 + t * 20000, 16000 + t * 15000, 5000 + t * 10000]
+        : [64000, 58000, 47000];
+      img.data.set(px, (y * W + x) * 3);
+    }
+  }
+  const r = detectFrameInImage(img, 'color');
+  assert.ok(r, 'Rahmen muss erkannt werden');
+  assert.ok(Math.abs(r.x - 80 / W) < 0.02 && Math.abs(r.x + r.w - 320 / W) < 0.02, JSON.stringify(r));
+});
