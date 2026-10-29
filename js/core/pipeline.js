@@ -16,19 +16,22 @@
 //
 // Schritte 1–5 sind pro Kanal separierbar und werden als 16-Bit-LUT berechnet.
 
-import { srgbToLinear, linearToSrgb, luma, hueOf, hueVector, clamp, smoothstep } from './color.js';
+import { srgbToLinear, linearToSrgb, luma, hueOf, hueVector, clamp } from './color.js';
 import { curveTable, sampleTable, isIdentityCurve } from './spline.js';
 import { createImage } from './geometry.js';
 
+// Farbbänder des Mischers als Farbton in OkLCh (wahrnehmungsgleichmäßig).
+// Gras und Laub liegen bei ca. 95–130° und werden von Gelb und Grün
+// gemeinsam erfasst (wie bei Lightroom).
 export const HSL_BANDS = [
-  { key: 'red', label: 'Rot', hue: 0 },
-  { key: 'orange', label: 'Orange', hue: 30 },
-  { key: 'yellow', label: 'Gelb', hue: 60 },
-  { key: 'green', label: 'Grün', hue: 120 },
-  { key: 'aqua', label: 'Cyan', hue: 180 },
-  { key: 'blue', label: 'Blau', hue: 225 },
-  { key: 'purple', label: 'Lila', hue: 275 },
-  { key: 'magenta', label: 'Magenta', hue: 320 },
+  { key: 'red', label: 'Rot', hue: 25 },
+  { key: 'orange', label: 'Orange', hue: 55 },
+  { key: 'yellow', label: 'Gelb', hue: 95 },
+  { key: 'green', label: 'Grün', hue: 130 },
+  { key: 'aqua', label: 'Cyan', hue: 195 },
+  { key: 'blue', label: 'Blau', hue: 255 },
+  { key: 'purple', label: 'Lila', hue: 295 },
+  { key: 'magenta', label: 'Magenta', hue: 330 },
 ];
 
 const LOG2 = Math.log10(2);
@@ -777,7 +780,7 @@ function bandWeights(hue, out) {
     let h = hue;
     if (h < a) h += 360;
     if (h >= a && h < b) {
-      const t = smoothstep((h - a) / (b - a));
+      const t = (h - a) / (b - a);
       out[i] = 1 - t;
       out[(i + 1) % n] = t;
       return out;
@@ -831,48 +834,68 @@ function prepareColor(s) {
   };
 }
 
-// Rodrigues-Drehung um die Grauachse.
-function rotateHue(rgb, deg) {
-  const t = (deg * Math.PI) / 180;
-  const c = Math.cos(t);
-  const s = Math.sin(t);
-  const k = (1 - c) / 3;
-  const q = s / Math.sqrt(3);
-  const r = rgb[0], g = rgb[1], b = rgb[2];
-  rgb[0] = r * (c + k) + g * (k - q) + b * (k + q);
-  rgb[1] = r * (k + q) + g * (c + k) + b * (k - q);
-  rgb[2] = r * (k - q) + g * (k + q) + b * (c + k);
+// sRGB (gamma) <-> OkLab, mit Tabellen für die Gamma-Umrechnung
+const GAMMA_N = 4096;
+const toLinT = new Float32Array(GAMMA_N + 1);
+const toSrgbT = new Float32Array(GAMMA_N + 1);
+for (let i = 0; i <= GAMMA_N; i++) {
+  toLinT[i] = srgbToLinear(i / GAMMA_N);
+  toSrgbT[i] = linearToSrgb(i / GAMMA_N);
+}
+function lookup(t, v) {
+  if (v <= 0) return v * (t[1] - t[0]) * GAMMA_N;
+  if (v >= 1) return t[GAMMA_N] + (v - 1) * (t[GAMMA_N] - t[GAMMA_N - 1]) * GAMMA_N;
+  const f = v * GAMMA_N;
+  const i = f | 0;
+  return t[i] + (t[i + 1] - t[i]) * (f - i);
+}
+
+export function rgbToOklab(r, g, b) {
+  r = lookup(toLinT, r); g = lookup(toLinT, g); b = lookup(toLinT, b);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+
+export function oklabToRgb(L, a, b) {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  return [
+    lookup(toSrgbT, 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+    lookup(toSrgbT, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+    lookup(toSrgbT, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
+  ];
 }
 
 function applyColor(buf, n, P) {
-  const px = [0, 0, 0];
   for (let i = 0; i < n * 3; i += 3) {
     let r = buf[i], g = buf[i + 1], b = buf[i + 2];
 
     if (!P.bw) {
-      // HSL-Farbmischer
+      // HSL-Farbmischer in OkLCh
       if (P.hslActive) {
-        const h = hueOf(r, g, b);
-        if (h >= 0) {
-          const hi = h | 0;
-          const max = Math.max(r, g, b);
-          const chroma = max - Math.min(r, g, b);
-          const amt = clamp(chroma * 2.5, 0, 1); // Graustufen bleiben unberührt
-          const hs = P.hueShift[hi] * amt;
-          if (hs) {
-            px[0] = r; px[1] = g; px[2] = b;
-            rotateHue(px, hs);
-            r = px[0]; g = px[1]; b = px[2];
-          }
-          const y = luma(r, g, b);
+        const lab = rgbToOklab(r, g, b);
+        const C = Math.hypot(lab[1], lab[2]);
+        if (C > 1e-4) {
+          let hdeg = (Math.atan2(lab[2], lab[1]) * 180) / Math.PI;
+          if (hdeg < 0) hdeg += 360;
+          const hi = hdeg | 0;
+          // nur fast farblose Pixel (Rauschen) schonen
+          const amt = C < 0.02 ? C / 0.02 : 1;
+          const hs = (P.hueShift[hi] * amt * Math.PI) / 180;
           const sm = 1 + (P.satMul[hi] - 1) * amt;
-          r = y + (r - y) * sm;
-          g = y + (g - y) * sm;
-          b = y + (b - y) * sm;
-          const la = P.lumAdd[hi] * amt;
-          if (la) {
-            r *= 1 + la; g *= 1 + la; b *= 1 + la;
-          }
+          const la = P.lumAdd[hi] * amt * Math.min(1, C / 0.06);
+          const ang = Math.atan2(lab[2], lab[1]) + hs;
+          const C2 = C * sm;
+          const L2 = lab[0] * (1 + la);
+          const out = oklabToRgb(L2, C2 * Math.cos(ang), C2 * Math.sin(ang));
+          r = out[0]; g = out[1]; b = out[2];
         }
       }
 

@@ -667,7 +667,9 @@ function buildPanel() {
     hslTabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.k === k));
   };
   showHsl('s');
-  sections.hsl = section('Farbmischer (HSL)', false, [hslTabs, hslBody], () => resetKeys('hsl'));
+  sections.hsl = section('Farbmischer (HSL)', false, [hslTabs, hslBody,
+    el('p', { class: 'hint' }, 'Wahrnehmungsgerecht (OkLCh). Gras und Laub liegen zwischen Gelb und Grün – für Vegetation am besten beide Regler nutzen.')],
+  () => resetKeys('hsl'));
 
   // --- Color Grading
   const gradeBlock = (key, label) => [

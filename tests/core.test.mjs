@@ -275,3 +275,32 @@ test('Abzugsmodell: Graukeil neutral, monoton, Weiß weich und Schwarz tief', as
   assert.ok(f(1, 1, 1)[0] > 0.85 && f(1, 1, 1)[0] < 0.97, 'Weißpunkt knapp unter Papierweiß');
   assert.ok(f(0, 0, 0)[0] < 0.02, 'Schatten laufen in Papierschwarz');
 });
+
+test('Farbmischer: Sättigung −100 entfärbt, Farbton und Luminanz wirken', async () => {
+  const { rgbToOklab } = await import('../js/core/pipeline.js');
+  // Ein Pixel mit typischem Laub-Grün (bereits im Positiv) direkt durch die Farbstufe
+  const s = defaultSettings();
+  s.film.scanCorrection = false;
+  s.color.vibrance = 0;
+  const run = (mod) => {
+    const t = structuredClone(s);
+    mod(t);
+    // Positiv-Modus mit gekoppelten Kanälen: Pixel bleibt ungefähr wie eingegeben
+    t.film.type = 'positive'; t.film.linked = true; t.tone.model = 'digital';
+    const img = createImage(3, 1);
+    img.data.set([2000, 2000, 2000, 30000, 36000, 14000, 60000, 60000, 60000]);
+    const lv = analyze(img, { ...t, film: { ...t.film, border: 0, clipBlack: 0, clipWhite: 0 } });
+    const o = processToFloat(img, t, lv, buildLUTs(t, lv));
+    return [o[3], o[4], o[5]];
+  };
+  const chroma = (p) => { const l = rgbToOklab(...p); return Math.hypot(l[1], l[2]); };
+  const base = run(() => {});
+  assert.ok(chroma(base) > 0.05, 'Ausgangspixel ist farbig');
+  const desat = run((t) => { t.hsl.green.s = -100; t.hsl.yellow.s = -100; });
+  assert.ok(chroma(desat) < 0.005, `Sättigung −100 muss entfärben: ${chroma(desat)}`);
+  const darker = run((t) => { t.hsl.green.l = -100; t.hsl.yellow.l = -100; });
+  assert.ok(rgbToOklab(...darker)[0] < rgbToOklab(...base)[0] - 0.03, 'Luminanz −100 muss abdunkeln');
+  const shifted = run((t) => { t.hsl.green.h = 100; t.hsl.yellow.h = 100; });
+  const hue = (p) => { const l = rgbToOklab(...p); return Math.atan2(l[2], l[1]); };
+  assert.ok(Math.abs(hue(shifted) - hue(base)) > 0.2, 'Farbton muss sich drehen');
+});
