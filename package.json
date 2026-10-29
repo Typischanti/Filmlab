@@ -1,0 +1,15 @@
+{
+  "name": "filmlab",
+  "version": "1.0.0",
+  "description": "Filmnegative in natürliche Positive umwandeln – im Browser oder per Kommandozeile.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node --test tests/*.test.mjs",
+    "convert": "node tools/filmlab-cli.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

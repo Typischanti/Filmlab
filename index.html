@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Filmlab – Negativ-Konverter</title>
+  <meta name="description" content="Filmnegative in natürliche Positive umwandeln – mit professionellen Werkzeugen, komplett im Browser.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='6' width='26' height='20' rx='3' fill='%23e39a3b'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%231b1c1f'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-dot"></span>Filmlab</div>
+    <button id="btnOpen" class="btn" title="Scans öffnen (Strg+O)">Öffnen</button>
+    <input type="file" id="fileInput" multiple hidden accept=".tif,.tiff,.jpg,.jpeg,.png,.webp,.bmp,image/*">
+    <span class="sep"></span>
+    <button id="btnUndo" class="btn icon" title="Rückgängig (Strg+Z)" disabled>↶</button>
+    <button id="btnRedo" class="btn icon" title="Wiederholen (Strg+Umschalt+Z)" disabled>↷</button>
+    <span class="sep"></span>
+    <button id="btnBefore" class="btn toggle" title="Original-Scan zeigen (B, gedrückt halten: \)">Vorher</button>
+    <button id="btnClip" class="btn toggle" title="Beschnittene Lichter/Tiefen markieren (J)">Clipping</button>
+    <button id="btnZoom" class="btn toggle" title="100 %-Ansicht (Z oder Doppelklick)">1:1</button>
+    <button id="btnCrop" class="btn toggle" title="Zuschneiden &amp; Begradigen (C)">Zuschneiden</button>
+    <span class="spacer"></span>
+    <label class="preset-label">Look
+      <select id="presetSelect" title="Look-Preset anwenden"></select>
+    </label>
+    <button id="btnSavePreset" class="btn" title="Aktuellen Look als Preset speichern">＋</button>
+    <button id="btnExport" class="btn primary" title="Exportieren (Strg+E)" disabled>Exportieren</button>
+    <button id="btnHelp" class="btn icon" title="Hilfe &amp; Tastenkürzel (?)">?</button>
+  </header>
+
+  <main class="workspace">
+    <section id="viewer" class="viewer">
+      <div id="stage" class="stage">
+        <canvas id="canvas"></canvas>
+        <div id="cropOverlay" class="crop-overlay" hidden>
+          <div id="cropRect" class="crop-rect">
+            <div class="grid-v"></div><div class="grid-h"></div>
+            <span class="h nw" data-h="nw"></span><span class="h n" data-h="n"></span><span class="h ne" data-h="ne"></span>
+            <span class="h e" data-h="e"></span><span class="h se" data-h="se"></span><span class="h s" data-h="s"></span>
+            <span class="h sw" data-h="sw"></span><span class="h w" data-h="w"></span>
+          </div>
+        </div>
+        <div id="pickHint" class="pick-hint" hidden></div>
+      </div>
+      <div id="welcome" class="welcome">
+        <div class="welcome-card">
+          <div class="welcome-icon"></div>
+          <h1>Negative in Positive verwandeln</h1>
+          <p>Scans hierher ziehen oder öffnen – TIFF (8/16 Bit), JPEG, PNG.<br>
+          Die Umwandlung arbeitet im Dichteraum wie ein Fotolabor: Die orange Maske wird
+          herausgerechnet, jede Farbschicht einzeln kalibriert und das Bild mit einer
+          natürlichen Papiergradation ausgegeben.</p>
+          <div class="welcome-actions">
+            <button id="btnOpen2" class="btn primary big">Scans öffnen</button>
+            <button id="btnSample" class="btn big">Beispiel-Negativ laden</button>
+          </div>
+          <p class="fine">Alles läuft lokal in deinem Browser – keine Bilder verlassen deinen Rechner.</p>
+        </div>
+      </div>
+      <div id="busy" class="busy" hidden><div class="spinner"></div><span id="busyText">Lade…</span></div>
+      <div class="statusbar">
+        <span id="statusName"></span>
+        <span id="statusInfo"></span>
+        <span class="spacer"></span>
+        <span id="statusPixel" class="mono"></span>
+        <span id="statusZoom" class="mono"></span>
+      </div>
+    </section>
+
+    <aside id="panel" class="panel">
+      <div class="histo-wrap">
+        <canvas id="histogram" width="300" height="110"></canvas>
+      </div>
+      <div id="controls" class="controls"></div>
+    </aside>
+  </main>
+
+  <footer id="filmstrip" class="filmstrip">
+    <div id="strip" class="strip"></div>
+    <div class="strip-actions">
+      <button id="btnCopy" class="btn small" title="Einstellungen kopieren (Strg+Umschalt+C)" disabled>Kopieren</button>
+      <button id="btnPaste" class="btn small" title="Einstellungen einfügen (Strg+Umschalt+V)" disabled>Einfügen</button>
+      <button id="btnSyncAll" class="btn small" title="Aktuelle Einstellungen auf alle Bilder übertragen" disabled>Auf alle</button>
+    </div>
+  </footer>
+
+  <dialog id="exportDialog" class="dialog">
+    <form method="dialog">
+      <h2>Exportieren</h2>
+      <div class="form-grid">
+        <label for="exFormat">Format</label>
+        <select id="exFormat">
+          <option value="jpeg">JPEG (8 Bit)</option>
+          <option value="png">PNG (8 Bit)</option>
+          <option value="tiff">TIFF (16 Bit, verlustfrei)</option>
+        </select>
+        <label for="exQuality">JPEG-Qualität</label>
+        <div class="inline"><input id="exQuality" type="range" min="60" max="100" value="95"><output id="exQualityOut">95</output></div>
+        <label for="exSize">Größe</label>
+        <select id="exSize">
+          <option value="0">Originalauflösung</option>
+          <option value="6000">Lange Kante 6000 px</option>
+          <option value="4000">Lange Kante 4000 px</option>
+          <option value="3000">Lange Kante 3000 px</option>
+          <option value="2048">Lange Kante 2048 px</option>
+          <option value="1200">Lange Kante 1200 px (Web)</option>
+        </select>
+        <label for="exSuffix">Dateiname-Zusatz</label>
+        <input id="exSuffix" type="text" value="_positiv">
+        <label for="exScope">Bilder</label>
+        <select id="exScope">
+          <option value="current">Aktuelles Bild</option>
+          <option value="all">Alle Bilder im Filmstreifen</option>
+        </select>
+        <label for="exSidecar">Einstellungen</label>
+        <label class="check"><input id="exSidecar" type="checkbox"> Einstellungen als .json mitspeichern</label>
+      </div>
+      <p id="exInfo" class="fine"></p>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn">Abbrechen</button>
+        <button id="exGo" value="ok" class="btn primary">Exportieren</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="helpDialog" class="dialog wide">
+    <form method="dialog">
+      <h2>So bekommst du die besten Ergebnisse</h2>
+      <ol class="help-steps">
+        <li><b>Scan:</b> Am besten 16-Bit-TIFF (Scanner ohne automatische Korrekturen, oder Kamera-Scan als lineares TIFF entwickelt – dann „Linear“ wählen). Lass ein Stück unbelichteten Filmrand im Bild.</li>
+        <li><b>Filmtyp</b> wählen – die Umwandlung erfolgt automatisch.</li>
+        <li>Optional: <b>Filmbasis aufnehmen</b> – mit der Pipette auf den unbelichteten Filmrand klicken. Das macht die Schatten farbneutral.</li>
+        <li><b>Zuschneiden</b>, damit Rand und Perforation nicht in die Analyse eingehen.</li>
+        <li><b>Weißabgleich-Pipette</b> auf etwas Neutrales (Grau/Weiß) setzen, danach Belichtung und Kontrast nach Geschmack.</li>
+        <li>Für eine ganze Rolle: ein Bild einstellen, <b>„Analyse sperren“</b> aktivieren und <b>„Auf alle“</b> übertragen – so bekommen alle Bilder dieselbe, konsistente Farbabstimmung.</li>
+      </ol>
+      <h3>Tastenkürzel</h3>
+      <div class="keys">
+        <span><kbd>Strg</kbd>+<kbd>O</kbd> Öffnen</span>
+        <span><kbd>Strg</kbd>+<kbd>E</kbd> Exportieren</span>
+        <span><kbd>Strg</kbd>+<kbd>Z</kbd> Rückgängig</span>
+        <span><kbd>Strg</kbd>+<kbd>⇧</kbd>+<kbd>Z</kbd> Wiederholen</span>
+        <span><kbd>B</kbd> Vorher/Nachher</span>
+        <span><kbd>\</kbd> halten: Vorher</span>
+        <span><kbd>J</kbd> Clipping-Warnung</span>
+        <span><kbd>Z</kbd> 100 %-Ansicht</span>
+        <span><kbd>C</kbd> Zuschneiden</span>
+        <span><kbd>W</kbd> Weißabgleich-Pipette</span>
+        <span><kbd>F</kbd> Filmbasis-Pipette</span>
+        <span><kbd>←</kbd> <kbd>→</kbd> Bild wechseln</span>
+        <span><kbd>Strg</kbd>+<kbd>⇧</kbd>+<kbd>C</kbd>/<kbd>V</kbd> Einstellungen kopieren/einfügen</span>
+        <span>Doppelklick auf Regler: zurücksetzen</span>
+      </div>
+      <div class="dialog-actions">
+        <button id="btnSaveSettings" type="button" class="btn">Einstellungen speichern (.json)</button>
+        <button id="btnLoadSettings" type="button" class="btn">Einstellungen laden</button>
+        <input type="file" id="settingsInput" hidden accept=".json,application/json">
+        <span class="spacer"></span>
+        <button value="close" class="btn primary">Schließen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+</body>
+</html>
