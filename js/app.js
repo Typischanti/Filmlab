@@ -591,6 +591,12 @@ function buildPanel() {
     bind('film.clipBlack', { label: 'Schwarz-Clipping', min: 0, max: 2, step: 0.01, unit: ' %', title: 'Anteil der Pixel, die rein schwarz werden dürfen' }),
     bind('film.clipWhite', { label: 'Weiß-Clipping', min: 0, max: 2, step: 0.01, unit: ' %', title: 'Anteil der Pixel, die rein weiß werden dürfen' }),
     bind('film.border', { label: 'Analyse-Rand ignorieren', min: 0, max: 20, step: 1, unit: ' %' }),
+    reg(checkbox('Kamera-Scan-Farbkorrektur', () => S()?.film.scanCorrection !== false, (v) => {
+      const s = S(); if (!s) return;
+      s.film.scanCorrection = v;
+      commit(); changed();
+    }, 'Gleicht aus, dass Kamerafilter die Farbstoffe des Negativs weniger sauber trennen als ein Laborscanner: Grün wird natürlicher (weniger Cyan), das Bild etwas wärmer. Für Scanner-Scans ggf. abschalten.')),
+    bind('film.clipRecon', { label: 'Rekonstruktion beschnittener Kanäle', min: 0, max: 1, step: 0.05, digits: 2, title: 'Wie stark im Scan übersteuerte Kanäle aus den intakten Kanälen ergänzt werden (0 = gemessener Wert, 1 = volle Schätzung)' }),
     reg(checkbox('Automatische Graubalance', () => S()?.film.autoNeutral !== false, (v) => {
       const s = S(); if (!s) return;
       s.film.autoNeutral = v;

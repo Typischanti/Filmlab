@@ -48,6 +48,8 @@ export function defaultSettings() {
       clipWhite: 0.05,        // % Pixel, die in Weiß clippen dürfen
       border: 4,              // % Rand, der bei der Analyse ignoriert wird
       autoNeutral: true,      // Graubalance an fast neutralen Motivteilen feinabgleichen
+      scanCorrection: true,   // Kamera-Scan-Farbkorrektur (Übersprechen der Kamerafilter)
+      clipRecon: 0.5,         // Stärke der Rekonstruktion beschnittener Kanäle (0..1)
       linked: false,          // Kanäle gemeinsam normieren (Farben des Scans erhalten, Standard bei Dias)
       lockLevels: false,      // Analysewerte einfrieren (z. B. für eine ganze Rolle)
       levels: null,           // { lo:[3], hi:[3] } Dichte-Schwarz/Weißpunkt
@@ -432,6 +434,22 @@ function sampleTone(t, x) {
 
 // Weißabgleich-Vektoren im x-Raum (0.0015 pro Reglereinheit ≈ ±1,1 Blenden bei 100)
 const WB_SCALE = 0.0015;
+// Kamera-Scan-Farbkorrektur: Die Farbfilter einer Digitalkamera trennen die
+// Farbstoffe des Negativs weniger sauber als ein Laborscanner; Grün kippt
+// dadurch Richtung Cyan und das Bild wirkt kühl. Ausgleich: leichte
+// Erwärmung und Drehung von Grün/Cyan Richtung Gelb (abgestimmt an echten
+// Kamera-Scans). Die sichtbaren Regler bleiben davon unberührt.
+const SCAN_WARMTH = 6;
+const SCAN_HUE = { green: -7.5, aqua: -3.5 };
+
+function scanCorrected(s) {
+  return s.film.scanCorrection !== false && s.film.type === 'color';
+}
+
+export function effectiveWb(s) {
+  return scanCorrected(s) ? { temp: s.wb.temp + SCAN_WARMTH, tint: s.wb.tint } : s.wb;
+}
+
 export function wbOffsets(wb) {
   const t = wb.temp * WB_SCALE;
   const m = wb.tint * WB_SCALE;
@@ -477,7 +495,7 @@ export function buildLUTs(settings, levels) {
   const dt = densityTable(film.inputGamma, film.type);
   const tt = toneTable(effectiveTone(settings, levels));
   const bw = film.type === 'bw';
-  const wbo = bw ? [0, 0, 0] : wbOffsets(settings.wb);
+  const wbo = bw ? [0, 0, 0] : wbOffsets(effectiveWb(settings));
   const master = curveTable(settings.curves.master);
   const masterId = isIdentityCurve(settings.curves.master);
   const chans = ['r', 'g', 'b'].map((k) => (isIdentityCurve(settings.curves[k]) ? null : curveTable(settings.curves[k])));
@@ -533,7 +551,7 @@ function colorOpsActive(s) {
     const g = s.grading;
     return g.shadows.sat || g.midtones.sat || g.highlights.sat;
   }
-  if (s.color.vibrance || s.color.saturation) return true;
+  if (s.color.vibrance || s.color.saturation || scanCorrected(s)) return true;
   for (const b of HSL_BANDS) {
     const h = s.hsl[b.key];
     if (h.h || h.s || h.l) return true;
@@ -563,9 +581,10 @@ function bandWeights(hue, out) {
 
 function prepareColor(s) {
   const bw = s.film.type === 'bw';
+  const baseHue = scanCorrected(s) ? SCAN_HUE : {};
   const hslActive = !bw && HSL_BANDS.some((b) => {
     const h = s.hsl[b.key];
-    return h.h || h.s || h.l;
+    return h.h || h.s || h.l || baseHue[b.key];
   });
   // HSL als Tabelle über 360 Grad vorberechnen
   let hueShift = null, satMul = null, lumAdd = null;
@@ -579,7 +598,7 @@ function prepareColor(s) {
       let hs = 0, ss = 0, ls = 0;
       for (let i = 0; i < HSL_BANDS.length; i++) {
         const v = s.hsl[HSL_BANDS[i].key];
-        hs += w[i] * v.h;
+        hs += w[i] * (v.h + (baseHue[HSL_BANDS[i].key] || 0) / 0.3);
         ss += w[i] * v.s;
         ls += w[i] * v.l;
       }
@@ -813,6 +832,7 @@ function reconstructClipped(buf, codes, n, levels, film, xTables) {
   if (!good.length || !xTables) return;
   const dt = densityTable(film.inputGamma, film.type);
   const k = levels.clipK || [0, 0, 0];
+  const strength = film.clipRecon ?? 1;
   const ramp = clip.map((c) => (c > 0 ? Math.max(1, c * 0.04) : 1));
   for (let i = 0; i < n * 3; i += 3) {
     for (let c = 0; c < 3; c++) {
@@ -824,7 +844,7 @@ function reconstructClipped(buf, codes, n, levels, film, xTables) {
       for (const g of good) m += channelX(dt[codes[i + g]], g, levels, film);
       const xe = m / good.length + k[c];
       const ye = sampleTable(xTables[c], (xe - TONE_MIN) / (TONE_MAX - TONE_MIN));
-      const w = Math.min(1, (v - start) / ramp[c]);
+      const w = Math.min(1, (v - start) / ramp[c]) * strength;
       const y = buf[i + c];
       buf[i + c] = y + w * (Math.min(y, ye) - y);
     }
@@ -935,6 +955,7 @@ export function neutralWb(codes, settings, levels) {
   });
   const mean = (x[0] + x[1] + x[2]) / 3;
   const wb = offsetsToWb(x.map((v) => mean - v));
+  if (scanCorrected(settings)) wb.temp -= SCAN_WARMTH;
   return { temp: Math.round(clamp(wb.temp, -100, 100)), tint: Math.round(clamp(wb.tint, -100, 100)) };
 }
 
@@ -943,7 +964,7 @@ export function neutralWb(codes, settings, levels) {
 export function autoExposure(img, settings, levels) {
   const film = settings.film;
   const dt = densityTable(film.inputGamma, film.type);
-  const wbo = film.type === 'bw' ? [0, 0, 0] : wbOffsets(settings.wb);
+  const wbo = film.type === 'bw' ? [0, 0, 0] : wbOffsets(effectiveWb(settings));
   const n = img.width * img.height;
   const step = Math.max(1, Math.floor(n / 12000));
   const xs = [];

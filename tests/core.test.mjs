@@ -52,6 +52,7 @@ test('Graukeil wird trotz oranger Maske neutral und richtig herum', () => {
   const s = defaultSettings();
   s.color.vibrance = 0;
   s.film.border = 0;
+  s.film.scanCorrection = false; // absichtliche Erwärmung hier ausklammern
   const levels = analyze(img, s);
   const out = processToFloat(img, s, levels, buildLUTs(s, levels));
   const w = img.width;
@@ -214,4 +215,20 @@ test('Bei Nachbarbildern im Scan wird das mittlere, größte Bild gewählt', asy
   const r = detectFrameInImage(img, 'color');
   assert.ok(r, 'Rahmen muss erkannt werden');
   assert.ok(Math.abs(r.x - 80 / W) < 0.02 && Math.abs(r.x + r.w - 320 / W) < 0.02, JSON.stringify(r));
+});
+
+test('Kamera-Scan-Korrektur wärmt leicht und Pipette bleibt neutral', () => {
+  const img = syntheticNegative();
+  const s = defaultSettings();
+  s.film.border = 0;
+  s.color.vibrance = 0;
+  const levels = analyze(img, s);
+  const i = (8 * img.width + 32) * 3;
+  const codes = [img.data[i], img.data[i + 1], img.data[i + 2]];
+  let luts = buildLUTs(s, levels);
+  assert.ok(luts[0][codes[0]] > luts[2][codes[2]], 'Grau soll leicht warm werden');
+  s.wb = neutralWb(codes, s, levels);
+  luts = buildLUTs(s, levels);
+  const r = luts[0][codes[0]], g = luts[1][codes[1]], b = luts[2][codes[2]];
+  assert.ok(Math.max(r, g, b) - Math.min(r, g, b) < 0.01, `${r} ${g} ${b}`);
 });

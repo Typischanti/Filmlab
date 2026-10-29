@@ -60,6 +60,8 @@ abgestimmt.
   der Schwarzpunkt geschätzt und die beschnittenen Werte aus den intakten
   Kanälen rekonstruiert
 - **Automatische Graubalance** an fast neutralen Motivteilen (abschaltbar)
+- **Kamera-Scan-Farbkorrektur**: gleicht das Übersprechen der Kamerafilter aus
+  (Grün kippt sonst Richtung Cyan, das Bild wirkt kühl); abschaltbar
 - Gekoppelte oder kanalweise Analyse, Kanal-Feinabstimmung (Schwarz-/Weißpunkt R/G/B)
 - **Analyse sperren** + **Auf alle**: identische Abstimmung für eine ganze Filmrolle
 
