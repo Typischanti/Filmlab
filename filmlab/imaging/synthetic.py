@@ -132,3 +132,40 @@ def write_dng(path, linear_rgb: np.ndarray, black: int = 512, white: int = 16383
         (50728, "2I", 3, [1, 1, 1, 1, 1, 1], True),    # AsShotNeutral
     ]
     tifffile.imwrite(str(path), raw, photometric=32803, subfiletype=0, extratags=extratags, metadata=None)
+
+
+def make_strip_in_holder(h: int = 400, w: int = 600, film: FilmModel | None = None,
+                         scan: ScanModel | None = None) -> SyntheticNegative:
+    """Realistischer Kamera-Scan: Filmstreifen mit drei Bildern in einem
+    schwarzen Filmhalter. Filmgrund ist nur an den Stegen zwischen den
+    Bildern und an einem schmalen Filmrand sichtbar; links/rechts sind
+    Nachbarbilder angeschnitten. ``frame`` bezeichnet das mittlere Bild."""
+    film = film or FilmModel()
+    scan = scan or ScanModel()
+    k = np.asarray(scan.light)
+    holder_h = int(h * 0.06)                     # schwarzer Halter oben/unten
+    edge = int(h * 0.03)                         # unbelichteter Filmrand
+    gap = int(w * 0.025)                         # Steg zwischen den Bildern
+    fw = int(w * 0.62)
+    x0 = (w - fw) // 2
+    y0, y1 = holder_h + edge, h - holder_h - edge
+    density = np.empty((h, w, 3))
+    density[...] = np.asarray(film.d_min) + film.fog
+    sc = test_scene(y1 - y0, fw)
+    density[y0:y1, x0:x0 + fw] = expose_film(sc, film)
+    # Nachbarbilder (andere, dunklere Szene)
+    nb = expose_film(np.clip(test_scene(y1 - y0, fw)[:, ::-1] * 0.6, 0.02, 1), film)
+    lw = x0 - gap
+    density[y0:y1, :lw] = nb[:, fw - lw:]
+    rx = x0 + fw + gap
+    density[y0:y1, rx:] = nb[:, : w - rx]
+    neg = k * 10.0 ** (-density)
+    neg[:holder_h] = 0.004
+    neg[h - holder_h:] = 0.004
+    if scan.noise > 0:
+        rng = np.random.default_rng(scan.seed)
+        neg = neg * (1 + rng.normal(0, scan.noise, neg.shape))
+    full_scene = np.zeros((h, w, 3), np.float32)
+    full_scene[y0:y1, x0:x0 + fw] = sc
+    return SyntheticNegative(np.clip(neg, 0, 1).astype(np.float32), full_scene, (x0, y0, x0 + fw, y1),
+                             k * 10.0 ** (-(np.asarray(film.d_min) + film.fog)), film, scan)

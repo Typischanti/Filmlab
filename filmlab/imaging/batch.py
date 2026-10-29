@@ -150,6 +150,8 @@ def roll_analysis(proxies: list[np.ndarray], settings: list[EditSettings], sourc
     d_hi = np.median([a.d_hi for a in fixed], axis=0)
     d_hi = np.maximum(d_hi, d_lo + inversion.MIN_RANGE)
     r = inversion.log_range(d_lo, d_hi, settings[0].film_gamma)
+    auto_ev = float(np.median([a.auto_ev for a in fixed]))   # gemeinsam: Belichtungsunterschiede bleiben
+    balance = np.median([a.balance for a in fixed], axis=0)
     out = []
     for s, a, sid, b, own in zip(settings, fixed, source_ids, bases, per):
         n = s.copy()
@@ -161,6 +163,7 @@ def roll_analysis(proxies: list[np.ndarray], settings: list[EditSettings], sourc
             key=n.analysis_key(sid), base_rgb=[float(v) for v in b], base_source="fixed",
             base_confidence=a.base_confidence, frame_rect=a.frame_rect,
             d_lo=[float(v) for v in d_lo], d_hi=[float(v) for v in d_hi], log_range=r,
+            balance=[float(v) for v in balance], auto_ev=auto_ev,
             scan_level=float(np.max(b)), warnings=list(a.warnings), notes=frame_notes,
         )
         n.lock_analysis = True

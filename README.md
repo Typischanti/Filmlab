@@ -7,7 +7,9 @@ läuft in linearer float32-Präzision, ohne 8-Bit-Zwischenschritte.
 * **Farbnegativ (C-41)**, **S/W-Negativ**, **Diafilm** (Positiv-Workflow)
 * Dichtebasierte Inversion mit kanalweiser **Orangemasken-Kompensation**
   (physikalisch hergeleitet, siehe [docs/ALGORITHM.md](docs/ALGORITHM.md))
-* Automatische **Filmrand-Erkennung** (Perforation/Durchlicht wird verworfen),
+* Automatische **Filmgrund-Erkennung** an Filmrand und Stegen zwischen den
+  Bildern (Perforation/Durchlicht wird verworfen), Erkennung und Ausschluss
+  des schwarzen **Filmhalters**, automatischer Zuschnitt auf das Bild,
   manueller Messbereich, Plausibilitätsprüfung, gekennzeichnete Ersatzschätzung
 * Import: DNG, NEF, CR2, CR3, ARW, RAF, ORF, RW2 … (LibRaw), TIFF 8/16/32 Bit, PNG 8/16 Bit, JPEG
 * Export: **TIFF 16 Bit**, PNG 8/16 Bit, JPEG (Qualitätsregler), jeweils mit
@@ -140,7 +142,7 @@ docs/          ALGORITHM.md – mathematische Grundlagen
 pytest -q
 ```
 
-Die Suite (93 Tests) prüft u. a. die exakte Inversion synthetischer Negative,
+Die Suite (95 Tests) prüft u. a. die exakte Inversion synthetischer Negative,
 die Unabhängigkeit des Ergebnisses von Maske und Lichtquelle, die
 Filmrand-Erkennung (inkl. Perforation, Rauschen, fehlendem Rand), die
 Plausibilitätsprüfungen, die numerische Stabilität, Schwarz-/Weißpunkte, die
@@ -172,6 +174,12 @@ Thread; neue Anfragen ersetzen wartende.
 * Die kanalweise Normierung setzt neutrale Tiefen und Lichter im Motiv voraus;
   für Motive ohne neutrales Schwarz gibt es die filmgrund-referenzierte
   Normierung (siehe ALGORITHM.md).
-* Getestet wurde mit synthetischen Negativen und einem erzeugten Bayer-DNG;
-  reale Kamera-RAWs werden von LibRaw dekodiert, eine Validierung an realen
-  Scans verschiedener Filme steht noch aus.
+* **Kamera-JPEGs sind nicht linear**: die kamerainterne Tonkurve verfälscht
+  die Dichteberechnung kanalweise. Die Auto-Balance gleicht das in den
+  Mitteltönen weitgehend aus, für beste Ergebnisse RAW (oder lineare
+  16-Bit-TIFFs) verwenden.
+* Validiert an synthetischen Negativen, einem erzeugten Bayer-DNG und
+  11 realen Kamera-Scans (JPEG, Kodak Portra 400/160, Mittelformat, ein
+  S/W-Film, schwarzer Filmhalter). Eine Validierung mit echten RAW-Dateien
+  steht noch aus.
+* Der Bildbereich wird für das Bild in der Bildmitte erkannt.

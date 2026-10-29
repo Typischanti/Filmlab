@@ -42,6 +42,11 @@ def gray_patches(neg, lin):
 
 
 def analyzed(neg_img, **kw) -> EditSettings:
+    """Analysiert ein Negativ. Für pixelgenaue Prüfungen standardmäßig ohne
+    automatischen Zuschnitt, Auto-Balance und Auto-Belichtung."""
+    kw.setdefault("auto_crop", False)
+    kw.setdefault("auto_color", 0.0)
+    kw.setdefault("auto_exposure", False)
     s = EditSettings(**kw)
     s.analysis = pipeline.analyze(pipeline.analysis_proxy(neg_img), s)
     return s

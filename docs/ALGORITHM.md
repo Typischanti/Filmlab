@@ -86,19 +86,25 @@ Automatisch (`imaging/filmbase.py::detect_base`), auf einem Analyse-Proxy
 (lange Kante 1200 px, flächengetreu verkleinert):
 
 1. Bild in Blöcke teilen; je Block Mittelwert und relative Streuung.
-2. Kandidaten: gleichmäßige (rel. Streuung < 5 %), nicht gesättigte
-   (< 98.5 % des Maximums) Blöcke im Randstreifen (12 % je Seite) bzw.
-   außerhalb des Zuschnitts.
-3. Die helleren Kandidaten werden nach Farbe geclustert (Abstand in log10).
-4. **Durchlicht ohne Film** (Perforation, Lücken zwischen Bildern) ist heller
-   als der Filmgrund und – bei C-41 – neutral statt orange. Ein heller,
-   neutraler Cluster wird zugunsten eines orangefarbenen verworfen bzw. bei
-   einem Helligkeitsabstand > 0.12 log10 zugunsten des nächsthelleren.
-5. Ein echter Filmrand verläuft **durchgehend** entlang einer Kante
-   (≥ 35 % der Kantenlänge). Gleichmäßige dunkle Motivflächen am Rand
-   erfüllen das nicht.
-6. Der Filmgrund muss heller sein als (fast) der gesamte Bildinhalt
-   (≥ 97 % des 99.5-Perzentils je Kanal).
+2. Kandidaten im **ganzen Bild**: gleichmäßige (rel. Streuung < 5 %) Blöcke,
+   die nicht vollständig gesättigt sind. (Bei realen Kamera-Scans liegt der
+   Filmgrund oft nur in den Stegen zwischen den Bildern und am schmalen
+   Filmrand, nicht an den Bildkanten.)
+3. Die hellen Kandidaten werden nach Farbe geclustert (Abstand in log10).
+4. Filmgrund-Bereiche sind **lange, gerade Streifen**: ein Cluster muss
+   mindestens 30 % einer Blockzeile oder -spalte belegen. Gleichmäßige
+   Motivflächen erfüllen das praktisch nie.
+5. **Licht ohne Film** (Perforation, Lücken) ist (nahezu) gesättigtes Weiß
+   und – bei C-41 – neutral statt orange; ein solcher Cluster wird zugunsten
+   des orangefarbenen bzw. nächsthelleren verworfen.
+6. Der Filmgrund muss heller sein als (fast) der gesamte Bildinhalt. 10 %
+   Toleranz berücksichtigen ungleichmäßige Ausleuchtung (Lichtabfall) bei
+   Kamera-Scans.
+
+**Filmhalter / Maske** (`no_light_mask`): Bereiche mit einer scheinbaren
+Dichte > 1.7 über Filmgrund, die mit dem Bildrand verbunden sind, sind kein
+Film. Sie werden aus Bildbereichs- und Tonwertanalyse ausgeschlossen – sonst
+würden sie als „maximale Dichte“ den Weißpunkt bestimmen.
 
 Plausibilitätsprüfungen (`check_base`, auch für manuelle Messbereiche):
 Sättigung des Filmgrunds, sehr dunkler Scan (Rauschen), Anteil der Bildpixel
@@ -111,10 +117,12 @@ des leicht geglätteten Bildinhalts ×1.02 (hellste Negativbereiche ≈ tiefste
 Szenenschatten ≈ D_min). Wird deutlich als *geschätzt / weniger zuverlässig*
 gekennzeichnet; die Normierung schaltet dann auf kanalweise Schwarzpunkte.
 
-Zusätzlich wird der **belichtete Bildbereich** erkannt (`detect_frame`:
-Zeilen/Spalten mit ≥ 30 % Pixeln über 0.06 Dichte), damit Filmrand und
-Perforation nicht in die Tonwertanalyse eingehen. Er kann als Zuschnitt
-übernommen werden.
+Zusätzlich wird der **belichtete Bildbereich** des mittleren Bildes erkannt
+(`detect_frame`: Zeilen/Spalten mit ≥ 20 % Pixeln über 0.035 Dichte, ohne
+Filmhalter, zusammenhängend um die Bildmitte; Stege zwischen den Bildern
+trennen Nachbarbilder ab). Er dient der Tonwertanalyse und wird – solange
+kein eigener Zuschnitt gesetzt ist – automatisch als Zuschnitt verwendet
+(1.5 % Einzug wegen der unregelmäßigen Bildkanten von Rollfilm).
 
 ## 5. Normierung  **[heuristisch – Wahl der Referenzpunkte]**
 
@@ -179,9 +187,20 @@ mit einer Streulicht-/Papierschwarz-Korrektur:
 L'_c = (L_c − 10^(−R)) / (1 − 10^(−R))
 ```
 
-Optional **[heuristisch]** „Auto-Balance“: ein Exponent je Kanal
-`e_c' = e_c^g_c`, der die Mediane der Mitteltöne angleicht (Grauwelt-Annahme,
-Endpunkte fest). Standardmäßig aus.
+**[heuristisch]** „Auto-Balance“ (Standard bei Farbnegativ): ein Exponent je
+Kanal `e_c' = e_c^g_c` (begrenzt auf 0.7 … 1.4), der die Mediane der
+Mitteltöne angleicht (Grauwelt-Annahme, Endpunkte fest). Für ideale lineare
+Daten ist er nahezu 1. Er korrigiert aber kanalweise Nichtlinearitäten: reale
+Schichtkurven (Fuß/Schulter) und vor allem Kamera-JPEGs, deren interne
+Tonkurve die hellen Rotwerte des Negativs staucht (an realen Scans gemessen:
+g ≈ 0.8–0.95 für Rot, 1.05–1.2 für Grün). Ohne Ausgleich entsteht dort ein
+deutlicher Cyanstich in den Mitteltönen.
+
+**[heuristisch]** „Auto-Belichtung“: das geometrische Mittel der Luminanz
+(ohne die extremen 2 %) wird zu 60 % in Richtung Mittelgrau 0.18
+verschoben, begrenzt auf −1 … +1.5 EV, und zur Benutzerbelichtung addiert. Bei
+der Filmstreifen-Analyse wird ein gemeinsamer Wert verwendet, damit
+Belichtungsunterschiede zwischen den Aufnahmen erhalten bleiben.
 
 **Diafilm**: keine Inversion; `L = (S − lo)/(hi − lo)` mit gemeinsamen
 (luminanzbasierten) Perzentilen, damit die Farbbalance des Dias erhalten bleibt.

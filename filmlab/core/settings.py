@@ -76,6 +76,7 @@ class Analysis:
     slide_lo: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
     slide_hi: list[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])
     scan_level: float = 0.0          # Filmgrundhelligkeit relativ zur Sättigung
+    auto_ev: float = 0.0             # Vorschlag der automatischen Belichtung (EV)
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -93,11 +94,13 @@ class EditSettings:
     white_clip: float = 0.05          # Prozent der Pixel über dem Weißpunkt
     film_gamma: float = 0.60          # Gradation des Negativs (Dichte je log10 Belichtung)
     bw_mix: list[float] = field(default_factory=lambda: [0.2627, 0.6780, 0.0593])
-    auto_color: float = 0.0           # Heuristischer Mitteltonausgleich 0..1
+    auto_color: float = 1.0           # Heuristischer Mitteltonausgleich 0..1 (nur Farbnegativ)
     lock_analysis: bool = False
+    auto_crop: bool = True            # erkannten Bildbereich als Zuschnitt verwenden, solange kein eigener gesetzt ist
 
     # --- Belichtung & Weißabgleich (nach Inversion, szenenlinear) ----------
     exposure: float = 0.0             # EV
+    auto_exposure: bool = True        # Analysevorschlag (auto_ev) zur Belichtung addieren
     temperature: float = 0.0          # -100..100 (relativ)
     tint: float = 0.0                 # -100..100 (relativ)
     wb_gains: list[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])

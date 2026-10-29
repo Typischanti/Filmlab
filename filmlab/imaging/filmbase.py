@@ -26,6 +26,7 @@ import numpy as np
 
 CLIP_LEVEL = 0.985
 EPS = 1e-6
+NO_LIGHT_DENSITY = 1.7   # scheinbare Dichte über Filmgrund, ab der kein Film mehr angenommen wird
 
 
 @dataclass
@@ -48,15 +49,6 @@ def _block_stats(img: np.ndarray, block: int):
     return mean, std, bh, bw
 
 
-def _region_mask(bh: int, bw: int, crop: list[float] | None, strip: float) -> np.ndarray:
-    yy, xx = np.mgrid[0:bh, 0:bw]
-    cx, cy = (xx + 0.5) / bw, (yy + 0.5) / bh
-    if crop and (crop[2] - crop[0]) * (crop[3] - crop[1]) < 0.95:
-        x0, y0, x1, y1 = crop
-        return (cx < x0) | (cx > x1) | (cy < y0) | (cy > y1)
-    return (cx < strip) | (cx > 1 - strip) | (cy < strip) | (cy > 1 - strip)
-
-
 def image_region(img: np.ndarray, crop: list[float] | None, margin: float = 0.08) -> np.ndarray:
     """Bildinhalt ohne Ränder (für Vergleiche und Schätzungen)."""
     from .geometry import crop as do_crop, inset
@@ -65,26 +57,9 @@ def image_region(img: np.ndarray, crop: list[float] | None, margin: float = 0.08
     return do_crop(img, rect)
 
 
-def _edge_coverage(block_idx: np.ndarray, bh: int, bw: int, crop: list[float] | None) -> float:
-    """Größter Anteil einer Bildkante (bzw. Zuschnittkante), der von den
-    Blöcken eines Kandidaten-Clusters im angrenzenden Randstreifen belegt ist."""
-    by, bx = np.divmod(block_idx, bw)
-    if crop and (crop[2] - crop[0]) * (crop[3] - crop[1]) < 0.95:
-        x0, y0, x1, y1 = crop[0] * bw, crop[1] * bh, crop[2] * bw, crop[3] * bh
-        strips = [(by < y0, bx, bw), (by > y1, bx, bw), (bx < x0, by, bh), (bx > x1, by, bh)]
-    else:
-        sy, sx = max(1, int(np.ceil(bh * 0.12))), max(1, int(np.ceil(bw * 0.12)))
-        strips = [(by < sy, bx, bw), (by >= bh - sy, bx, bw), (bx < sx, by, bh), (bx >= bw - sx, by, bh)]
-    best = 0.0
-    for mask, pos, length in strips:
-        if np.any(mask):
-            best = max(best, np.unique(pos[mask]).size / length)
-    return best
-
-
 def is_orange(rgb) -> bool:
     r, g, b = rgb
-    return r > g * 1.08 and g > b * 1.08
+    return r > g * 1.03 and g > b * 1.08
 
 
 def check_base(rgb, img: np.ndarray, film_type: str, crop: list[float] | None = None,
@@ -104,7 +79,8 @@ def check_base(rgb, img: np.ndarray, film_type: str, crop: list[float] | None = 
         conf *= 0.8
     content = image_region(img, crop).reshape(-1, 3)
     if content.size:
-        brighter = np.mean(np.any(content > rgb * 1.03, axis=1))
+        # 10% Toleranz: ungleichmäßige Ausleuchtung (Lichtabfall) bei Kamera-Scans
+        brighter = np.mean(np.any(content > rgb * 1.10, axis=1))
         if brighter > 0.01:
             warnings.append(f"{brighter * 100:.1f}% der Bildpixel sind heller als die Referenz. "
                             "Vermutlich kein unbelichteter Filmgrund (oder Lichteinfall).")
@@ -119,26 +95,26 @@ def check_base(rgb, img: np.ndarray, film_type: str, crop: list[float] | None = 
     return conf, warnings
 
 
-def detect_frame(img: np.ndarray, base, min_fraction: float = 0.4) -> list[float] | None:
-    """Findet den belichteten Bildbereich innerhalb des Filmrands.
+def detect_frame(img: np.ndarray, base, min_fraction: float = 0.3) -> list[float] | None:
+    """Findet den belichteten Bildbereich des Bildes in der Mitte.
 
     Pixel gelten als belichtet, wenn ihre mittlere Dichte über dem Filmgrund
-    0.06 übersteigt; Pixel heller als der Filmgrund (Perforation, Lücken)
-    gelten als unbelichtet. Zeilen/Spalten mit mindestens 30% belichteten
-    Pixeln bilden den Bildbereich (zusammenhängend um die Mitte)."""
+    0.035 übersteigt und sie nicht zum lichtlosen Filmhalter gehören.
+    Filmgrund (Rand, Stege zwischen Bildern), Perforation und Halter zählen
+    nicht. Zeilen/Spalten mit mindestens 20% belichteten Pixeln bilden den
+    Bildbereich (zusammenhängend um die Bildmitte)."""
     base = np.asarray(base, dtype=np.float64)
     if np.any(base <= 0):
         return None
     t = img.astype(np.float64) / base
-    d = -np.log10(np.clip(t, 1e-4, None)).mean(axis=-1)
-    exposed = d > 0.06
+    d = -np.log10(np.clip(t, 1e-5, None)).mean(axis=-1)
+    exposed = (d > 0.035) & ~no_light_mask(img, base)
 
     def span(frac: np.ndarray) -> tuple[int, int] | None:
         n = frac.size
-        good = frac > 0.3
+        good = frac > 0.2
         c = n // 2
         if not good[c]:
-            # nächste belichtete Position zur Mitte suchen
             idx = np.flatnonzero(good)
             if idx.size == 0:
                 return None
@@ -155,6 +131,10 @@ def detect_frame(img: np.ndarray, base, min_fraction: float = 0.4) -> list[float
     cols = span(exposed.mean(axis=0))
     if rows is None or cols is None:
         return None
+    # zweiter Durchlauf nur innerhalb des gefundenen Streifens (robuster bei Nachbarbildern)
+    rows2 = span(exposed[:, cols[0]:cols[1]].mean(axis=1))
+    cols2 = span(exposed[rows[0]:rows[1]].mean(axis=0))
+    rows, cols = rows2 or rows, cols2 or cols
     h, w = d.shape
     if (rows[1] - rows[0]) < min_fraction * h or (cols[1] - cols[0]) < min_fraction * w:
         return None
@@ -195,16 +175,51 @@ def estimate_from_content(img: np.ndarray, crop: list[float] | None, film_type: 
     )
 
 
+def no_light_mask(img: np.ndarray, base) -> np.ndarray:
+    """Bereiche ohne Licht (Filmhalter, Maske, Rahmen): sehr hohe scheinbare
+    Dichte (> NO_LIGHT_DENSITY über Filmgrund) UND mit dem Bildrand verbunden.
+    Solche Pixel sind kein Film und dürfen weder Weißpunkt noch Bildbereich
+    beeinflussen. Rückgabe: bool-Maske (H, W)."""
+    import cv2
+
+    base = np.maximum(np.asarray(base, dtype=np.float64), EPS)
+    lum = np.asarray(img, dtype=np.float32) @ (np.ones(3, np.float32) / 3)
+    d = -np.log10(np.maximum(lum / float(base.mean()), 1e-5))
+    dark = (d > NO_LIGHT_DENSITY).astype(np.uint8)
+    if not dark.any():
+        return dark.astype(bool)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(dark, connectivity=4)
+    h, w = dark.shape
+    keep = np.zeros(n, bool)
+    for i in range(1, n):
+        x, y, bw_, bh_, area = stats[i]
+        touches = x == 0 or y == 0 or x + bw_ >= w or y + bh_ >= h
+        keep[i] = touches and area > 0.002 * h * w
+    return keep[labels]
+
+
+def _line_coverage(block_idx: np.ndarray, bh: int, bw: int) -> float:
+    """Filmgrund-Bereiche (Filmrand, Stege zwischen Bildern) sind lange,
+    gerade Streifen. Maß: größter Anteil einer Blockzeile oder -spalte, der
+    vom Cluster belegt ist."""
+    by, bx = np.divmod(block_idx, bw)
+    col = np.bincount(bx, minlength=bw).max() / bh
+    row = np.bincount(by, minlength=bh).max() / bw
+    return float(max(col, row))
+
+
 def detect_base(img: np.ndarray, film_type: str = "color_negative", crop: list[float] | None = None) -> BaseResult:
+    """Sucht im ganzen Bild den hellsten gleichmäßigen, streifenförmigen
+    Bereich (Filmrand oder Steg zwischen zwei Bildern)."""
     h, w = img.shape[:2]
-    block = int(max(4, min(h, w) // 80))
+    block = int(max(4, min(h, w) // 100))
     mean, std, bh, bw = _block_stats(img, block)
     if bh < 4 or bw < 4:
         return estimate_from_content(img, crop, film_type)
     lum = mean.mean(axis=-1)
     rel_std = std.mean(axis=-1) / np.maximum(lum, EPS)
-    region = _region_mask(bh, bw, crop, strip=0.12)
-    cand = region & (rel_std < 0.05) & (mean.max(axis=-1) < CLIP_LEVEL) & (mean.min(axis=-1) > 0.002)
+    # vollständig gesättigtes Weiß (Licht ohne Film) ist nie Filmgrund
+    cand = (rel_std < 0.05) & (mean.max(axis=-1) < 0.9995) & (mean.min(axis=-1) > 0.002)
     idx = np.flatnonzero(cand.ravel())
     if idx.size < 3:
         return estimate_from_content(img, crop, film_type)
@@ -212,8 +227,9 @@ def detect_base(img: np.ndarray, film_type: str = "color_negative", crop: list[f
     logm = np.log10(np.maximum(mean.reshape(-1, 3)[idx], EPS))
     lum_c = lum.ravel()[idx]
     order = np.argsort(-lum_c)
-    # Nur die helleren Kandidaten betrachten (Filmgrund ist hell)
-    top = order[: max(3, int(np.ceil(order.size * 0.5)))]
+    # nur die hellen Kandidaten (Filmgrund ist der hellste Filmbereich)
+    # (Licht ohne Film kann 4-5x heller sein als eine dichte Orangemaske)
+    top = order[lum_c[order] > 0.08 * lum_c[order[0]]][:6000]
 
     clusters: list[list[int]] = []
     centers: list[np.ndarray] = []
@@ -222,52 +238,48 @@ def detect_base(img: np.ndarray, film_type: str = "color_negative", crop: list[f
         for ci, c in enumerate(centers):
             if np.max(np.abs(v - c)) < 0.045:
                 clusters[ci].append(i)
-                centers[ci] = np.median(logm[clusters[ci]], axis=0)
+                if len(clusters[ci]) < 50 or len(clusters[ci]) % 25 == 0:
+                    centers[ci] = np.median(logm[clusters[ci]], axis=0)
                 break
         else:
             clusters.append([i])
             centers.append(v.copy())
 
-    content = image_region(img, crop).reshape(-1, 3)
-    p_content = np.percentile(content, 99.5, axis=0) if content.size else np.zeros(3)
-
+    flat = img.reshape(-1, 3)[:: max(1, (h * w) // 400000)]
+    min_blocks = max(3, int(0.002 * bh * bw))
     infos = []
-    min_blocks = max(3, int(0.003 * bh * bw))
     for members, c in zip(clusters, centers):
         if len(members) < min_blocks:
             continue
         rgb = 10.0 ** c
-        neutral = rgb.max() / max(rgb.min(), EPS) < 1.25
-        covers = np.all(rgb >= p_content * 0.97)
-        infos.append({"members": members, "rgb": rgb, "lum": float(rgb.mean()), "neutral": neutral,
-                      "covers": covers, "orange": is_orange(rgb)})
+        brighter = float(np.mean(np.any(flat > rgb * 1.10, axis=1)))
+        infos.append({"members": members, "rgb": rgb, "lum": float(rgb.mean()),
+                      "neutral": rgb.max() / max(rgb.min(), EPS) < 1.25, "orange": is_orange(rgb),
+                      "line": _line_coverage(idx[members], bh, bw), "brighter": brighter})
     if not infos:
         return estimate_from_content(img, crop, film_type)
     infos.sort(key=lambda d: -d["lum"])
 
-    chosen = infos[0]
     notes = []
-    for alt in infos[1:]:
-        brighter = np.log10(chosen["lum"] / max(alt["lum"], EPS))
-        if not alt["covers"] or len(alt["members"]) < min_blocks:
-            continue
+    good = [d for d in infos if d["line"] >= 0.3]
+    if not good:
+        res = estimate_from_content(img, crop, film_type)
+        res.warnings.insert(0, "Kein Filmrand und kein Steg zwischen Bildern gefunden.")
+        return res
+    chosen = good[0]
+    for alt in good[1:]:
+        ratio = np.log10(chosen["lum"] / max(alt["lum"], EPS))
         if film_type == "color_negative" and chosen["neutral"] and alt["orange"]:
             notes.append("Hellerer neutraler Bereich als Durchlicht ohne Film verworfen.")
             chosen = alt
             break
-        if brighter > 0.12 and chosen["neutral"] and (film_type != "color_negative" or not chosen["orange"]):
+        # Licht ohne Film ist praktisch immer (nahezu) gesättigtes Weiß
+        if (ratio > 0.12 and chosen["neutral"] and chosen["rgb"].max() >= 0.97
+                and (film_type != "color_negative" or not chosen["orange"])):
             notes.append("Deutlich hellerer Bereich als Durchlicht (Perforation/Lücke) verworfen.")
             chosen = alt
             break
-
-    # Ein echter Filmrand verläuft durchgehend entlang einer Bildkante;
-    # einzelne gleichmäßige (dunkle) Motivflächen am Rand tun das nicht.
-    if _edge_coverage(idx[chosen["members"]], bh, bw, crop) < 0.35:
-        res = estimate_from_content(img, crop, film_type)
-        res.warnings.insert(0, "Kein durchgehender Filmrand gefunden.")
-        return res
-
-    if not chosen["covers"]:
+    if chosen["brighter"] > 0.05:
         res = estimate_from_content(img, crop, film_type)
         res.warnings.insert(0, "Gefundener Randbereich ist dunkler als Teile des Bildinhalts und daher kein "
                                "verlässlicher Filmgrund.")
@@ -276,11 +288,9 @@ def detect_base(img: np.ndarray, film_type: str = "color_negative", crop: list[f
     members = chosen["members"]
     blocks = mean.reshape(-1, 3)[idx[members]]
     rgb = np.median(blocks, axis=0)
-    # Repräsentativer Block zur Anzeige
     k = idx[members[int(np.argmin(np.abs(np.log10(np.maximum(blocks, EPS)) - np.log10(rgb)).sum(axis=1)))]]
     by, bx = divmod(int(k), bw)
     rect = [bx * block / w, by * block / h, (bx + 1) * block / w, (by + 1) * block / h]
-
     size_conf = min(1.0, len(members) / (min_blocks * 4))
     conf, warnings = check_base(rgb, img, film_type, crop)
     conf *= 0.6 + 0.4 * size_conf

@@ -89,3 +89,39 @@ def test_base_density_offset_shifts_color():
     x0, y0, x1, y1 = neg.frame
     diff = (b - a)[y0:y1, x0:x1].mean(axis=(0, 1))
     assert diff[2] < -0.005 and abs(diff[0]) < abs(diff[2]) / 3
+
+
+def test_strip_in_black_holder():
+    """Wie reale Kamera-Scans: schwarzer Halter, Filmgrund nur in den Stegen
+    zwischen den Bildern. Halter darf weder Filmgrund noch Weißpunkt sein."""
+    from filmlab.imaging.synthetic import make_strip_in_holder
+    from conftest import gray_patches
+
+    neg = make_strip_in_holder(scan=ScanModel(noise=0.003))
+    s = EditSettings(auto_color=0.0)
+    a = pipeline.analyze(neg.negative, s)
+    assert a.base_source == "border"
+    np.testing.assert_allclose(a.base_rgb, neg.base_rgb, rtol=0.01)
+    h, w = neg.negative.shape[:2]
+    x0, y0, x1, y1 = neg.frame
+    np.testing.assert_allclose(a.frame_rect, [x0 / w, y0 / h, x1 / w, y1 / h], atol=0.01)
+    assert any("Filmhalter" in n for n in a.notes)
+    s.analysis = a
+    s.auto_crop = False
+    lin = pipeline.scene_linear(neg.negative, s, a)
+    patches = gray_patches(neg, lin)[2:]
+    assert np.max(np.abs(patches / patches.mean(axis=1, keepdims=True) - 1)) < 0.03
+    assert patches[-1].mean() > 0.8          # Weißpunkt aus dem Bild, nicht aus dem Halter
+    # automatischer Zuschnitt auf das mittlere Bild
+    s.auto_crop = True
+    out = pipeline.render(neg.negative, s)
+    assert abs(out.shape[1] - (x1 - x0)) < 0.03 * w
+
+
+def test_bw_base_not_rejected_as_light_leak():
+    from filmlab.imaging.synthetic import FilmModel, make_strip_in_holder
+
+    neg = make_strip_in_holder(film=FilmModel(d_min=(0.3, 0.3, 0.3), gamma=(0.6, 0.6, 0.6)))
+    res = filmbase.detect_base(neg.negative, "bw_negative")
+    assert res.source == "border"
+    np.testing.assert_allclose(res.rgb, neg.base_rgb, rtol=0.01)

@@ -171,6 +171,11 @@ class RightPanel(QScrollArea):
         sec = Section("Belichtung")
         for n in ("exposure", "brightness", "contrast", "gamma"):
             sec.add(self._add(n))
+        self.auto_ev_cb = QCheckBox("Auto-Belichtung")
+        self.auto_ev_cb.setToolTip("Heuristik: verschiebt das mittlere Bild teilweise Richtung Mittelgrau "
+                                   "(max. -1 … +1.5 EV). Wird zur Belichtung addiert.")
+        self.auto_ev_cb.toggled.connect(lambda on: self.paramChanged.emit("auto_exposure", on))
+        sec.add(self.auto_ev_cb)
         lay.addWidget(sec)
 
         # Weißabgleich
@@ -386,9 +391,11 @@ class RightPanel(QScrollArea):
             combo.blockSignals(True)
             combo.setCurrentIndex(max(0, combo.findData(value)))
             combo.blockSignals(False)
-        self.lock_cb.blockSignals(True)
-        self.lock_cb.setChecked(s.lock_analysis)
-        self.lock_cb.blockSignals(False)
+        for cb, val in ((self.lock_cb, s.lock_analysis), (self.auto_ev_cb, s.auto_exposure)):
+            cb.blockSignals(True)
+            cb.setChecked(val)
+            cb.blockSignals(False)
+        self.update_auto_ev(s)
         self.curve.set_curves(s.curves)
         negative = s.film_type != "slide"
         mono = s.film_type == "bw_negative"
@@ -403,6 +410,9 @@ class RightPanel(QScrollArea):
         self.normalization.setEnabled(negative)
         self.wb_section.setEnabled(not mono)
         self.color_section.setEnabled(not mono)
+
+    def update_auto_ev(self, s: EditSettings):
+        self.auto_ev_cb.setText(f"Auto-Belichtung ({s.analysis.auto_ev:+.2f} EV)")
 
     def export_options(self) -> dict:
         return {"fmt": self.fmt.currentData(), "output_space": self.space.currentData(),

@@ -47,7 +47,7 @@ def white_balance_gains(s: EditSettings) -> np.ndarray:
 
 
 def apply_linear(lin: np.ndarray, s: EditSettings, mono: bool = False) -> np.ndarray:
-    gain = np.float32(2.0 ** s.exposure)
+    gain = np.float32(2.0 ** total_exposure(s))
     if mono:
         return lin * gain
     return lin * (white_balance_gains(s) * gain)
@@ -182,8 +182,13 @@ def build_sqrt_tone_lut(s: EditSettings) -> np.ndarray:
 Q_TO_LIN_LUT = np.power(np.linspace(0.0, 1.0, 4096), PERC_GAMMA).astype(np.float32)[None, :]
 
 
+def total_exposure(s: EditSettings) -> float:
+    """Benutzer-Belichtung + (optional) automatische Belichtung aus der Analyse."""
+    return s.exposure + (s.analysis.auto_ev if s.auto_exposure else 0.0)
+
+
 def linear_gains(s: EditSettings, mono: bool = False) -> np.ndarray:
-    gain = 2.0 ** s.exposure
+    gain = 2.0 ** total_exposure(s)
     return (np.full(3, gain, np.float32) if mono else white_balance_gains(s) * np.float32(gain)).astype(np.float32)
 
 

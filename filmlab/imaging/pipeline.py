@@ -63,6 +63,7 @@ def analyze(proxy: np.ndarray, s: EditSettings, source_id: str = "") -> Analysis
         lo, hi = inversion.slide_levels(lum, s.black_clip, s.white_clip)
         a.slide_lo, a.slide_hi = [lo] * 3, [hi] * 3
         a.base_source = "none"
+        a.auto_ev = auto_exposure_ev((flat - lo) / (hi - lo))
         return a
 
     # --- Filmgrund ---------------------------------------------------------
@@ -83,6 +84,9 @@ def analyze(proxy: np.ndarray, s: EditSettings, source_id: str = "") -> Analysis
     a.base_source, a.base_confidence, a.base_rect = res.source, float(res.confidence), res.rect
     a.warnings.extend(res.warnings)
     a.scan_level = float(base.max())
+    if s.film_type == "color_negative" and res.source != "estimate" and base.max() / max(base.min(), 1e-6) < 1.15:
+        a.notes.append("Filmgrund ist neutral (keine Orangemaske) – vermutlich ein S/W-Negativ. "
+                       "Filmtyp ggf. auf „Schwarzweißnegativ“ umstellen.")
     if a.scan_level < 0.2:
         a.notes.append(f"Filmgrund liegt bei {a.scan_level * 100:.0f}% der Sättigung – der Scan könnte "
                        "ca. {:.1f} Blenden heller belichtet werden.".format(np.log2(0.8 / max(a.scan_level, 1e-4))))
@@ -94,7 +98,15 @@ def analyze(proxy: np.ndarray, s: EditSettings, source_id: str = "") -> Analysis
         rect = a.frame_rect
     # Transmission vor der Perzentilbildung leicht mitteln: macht Schwarz-/
     # Weißpunkt robust gegen Sensorrauschen in dichten Negativbereichen.
-    flat = _smooth(crop(geo, inset(rect, ANALYSIS_INSET))).reshape(-1, 3)
+    holder = filmbase.no_light_mask(geo, base)
+    if holder.mean() > 0.01:
+        a.notes.append(f"Filmhalter/Maske ohne Licht erkannt ({holder.mean() * 100:.0f}% der Fläche) und "
+                       "von der Analyse ausgeschlossen.")
+    inner = inset(rect, ANALYSIS_INSET)
+    keep = ~crop(holder, inner).reshape(-1)
+    flat = _smooth(crop(geo, inner)).reshape(-1, 3)
+    if keep.sum() > 1000:
+        flat = flat[keep]
 
     # --- Dichte & Normierung ----------------------------------------------
     if s.film_type == "bw_negative":
@@ -116,10 +128,47 @@ def analyze(proxy: np.ndarray, s: EditSettings, source_id: str = "") -> Analysis
     a.d_lo, a.d_hi = [float(v) for v in lo], [float(v) for v in hi]
     a.log_range = inversion.log_range(lo, hi, s.film_gamma)
 
+    e = inversion.normalize(d, lo, hi)
     if s.film_type == "color_negative" and s.auto_color > 0:
-        e = inversion.normalize(d, lo, hi)
         a.balance = [float(v) for v in inversion.balance_gammas(e, s.auto_color)]
+    lin = inversion.to_scene_linear(inversion.apply_balance(e, a.balance), a.log_range)
+    a.auto_ev = auto_exposure_ev(lin if lin.shape[-1] == 3 else np.repeat(lin, 3, axis=-1))
     return a
+
+
+AUTO_EV_STRENGTH = 0.6
+AUTO_EV_RANGE = (-1.0, 1.5)
+
+
+def auto_exposure_ev(lin: np.ndarray) -> float:
+    """HEURISTIK: Belichtungsvorschlag, der das geometrische Mittel der
+    Luminanz (ohne die extremen 2 %) teilweise (60 %) zum Mittelgrau 0.18
+    verschiebt. Begrenzt auf -1 .. +1.5 EV, damit Low-/High-Key-Motive ihren
+    Charakter behalten."""
+    y = np.asarray(lin, dtype=np.float32).reshape(-1, 3) @ tone.W_REC2020
+    y = y[np.isfinite(y)]
+    if y.size < 100:
+        return 0.0
+    lo, hi = np.percentile(y, [2, 98])
+    y = np.clip(y[(y >= lo) & (y <= hi)], 1e-4, None)
+    geo = float(np.exp(np.mean(np.log(y))))
+    ev = AUTO_EV_STRENGTH * np.log2(0.18 / geo)
+    return float(np.clip(ev, *AUTO_EV_RANGE))
+
+
+AUTO_CROP_INSET = 0.015
+
+
+def effective_geometry(s: EditSettings):
+    """Geometrie inkl. automatischem Zuschnitt auf den erkannten Bildbereich
+    (nur solange der Benutzer keinen eigenen Zuschnitt gesetzt hat)."""
+    g = s.geometry
+    if g.crop is None and s.auto_crop and s.analysis.frame_rect and s.analysis.frame_rect != [0.0, 0.0, 1.0, 1.0]:
+        import copy
+
+        g = copy.copy(g)
+        g.crop = inset(s.analysis.frame_rect, AUTO_CROP_INSET)
+    return g
 
 
 def ensure_analysis(proxy: np.ndarray, s: EditSettings, source_id: str = "") -> EditSettings:
@@ -234,7 +283,7 @@ def render(img: np.ndarray, s: EditSettings, scale: float = 1.0, output_space: s
         key = cache.key(cache_id, img.shape, s)
         sq = cache.get(key)
     if sq is None:
-        lin = scene_linear(apply_geometry(img, s.geometry), s, s.analysis)
+        lin = scene_linear(apply_geometry(img, effective_geometry(s)), s, s.analysis)
         sq = cv2.sqrt(np.maximum(lin, np.float32(0.0)))
         del lin
         if cache is not None:
@@ -244,7 +293,7 @@ def render(img: np.ndarray, s: EditSettings, scale: float = 1.0, output_space: s
 
 def render_negative(img: np.ndarray, s: EditSettings, with_crop: bool = True) -> np.ndarray:
     """Unbearbeitete Ansicht des Scans (für Vorher-Ansicht, Messbereichswahl)."""
-    geo = apply_geometry(img, s.geometry, with_crop=with_crop)
+    geo = apply_geometry(img, effective_geometry(s), with_crop=with_crop)
     return to_output(geo, "srgb")
 
 
@@ -260,7 +309,7 @@ class StageCache:
     @staticmethod
     def key(cache_id: str, shape, s: EditSettings) -> str:
         rel = {
-            "id": cache_id, "shape": list(shape), "geom": asdict(s.geometry), "film": s.film_type,
+            "id": cache_id, "shape": list(shape), "geom": asdict(effective_geometry(s)), "film": s.film_type,
             "bw": s.bw_mix, "off": s.base.offset, "a": asdict(s.analysis) | {"warnings": None, "notes": None},
         }
         return hashlib.sha1(json.dumps(rel, sort_keys=True, default=str).encode()).hexdigest()

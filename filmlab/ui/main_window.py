@@ -356,6 +356,7 @@ class MainWindow(QMainWindow):
             after = res.before   # Filmgrund wird auf dem Negativ gewählt
         self.viewer.set_images(after, before, reset_view=reset, upscale=res.upscale)
         self.right.histogram.set_data(res.hist, res.clip)
+        self.right.update_auto_ev(s)
         self._update_base_info()
         self._update_overlays()
 
@@ -564,14 +565,20 @@ class MainWindow(QMainWindow):
                     s.base.rect = _flip_rect(s.base.rect, name == "flip_h")
             self._change("Spiegeln", f)
         elif name == "crop_auto":
-            fr = s.analysis.frame_rect
-            if not fr:
+            if not s.analysis.frame_rect:
                 self.statusBar().showMessage("Kein Bildbereich erkannt (kein Filmrand gefunden).", 5000)
                 return
-            self._change("Zuschnitt: Bildbereich", lambda s: setattr(s.geometry, "crop", inset(fr, 0.005)))
+
+            def f(s):
+                s.geometry.crop = None
+                s.auto_crop = True
+            self._change("Zuschnitt: Bildbereich (automatisch)", f)
             self._set_tool(TOOL_NONE)
         elif name == "crop_reset":
-            self._change("Zuschnitt zurücksetzen", lambda s: setattr(s.geometry, "crop", None))
+            def f(s):
+                s.geometry.crop = None
+                s.auto_crop = False
+            self._change("Zuschnitt zurücksetzen", f)
             if self.tool == TOOL_CROP:
                 self.viewer.crop_rect = [0.0, 0.0, 1.0, 1.0]
         elif name == "browse_out":
@@ -599,7 +606,7 @@ class MainWindow(QMainWindow):
                  TOOL_NEUTRAL: "Neutralpunkt: auf neutrale Fläche klicken"}
         self.tool_label.setText(texts.get(tool, ""))
         if tool == TOOL_CROP and self.cur:
-            self.viewer.crop_rect = list(self.cur.geometry.crop or [0.0, 0.0, 1.0, 1.0])
+            self.viewer.crop_rect = list(pipeline.effective_geometry(self.cur).crop or [0.0, 0.0, 1.0, 1.0])
         if tool == TOOL_BASE:
             self.viewer.set_mode("after")
         elif prev == TOOL_BASE:
@@ -635,7 +642,7 @@ class MainWindow(QMainWindow):
         s = self.cur
         if s.film_type == "bw_negative":
             return
-        lin = pipeline.scene_linear(apply_geometry(self.loaded.preview, s.geometry), s, s.analysis)
+        lin = pipeline.scene_linear(apply_geometry(self.loaded.preview, pipeline.effective_geometry(s)), s, s.analysis)
         region = crop_img(lin, rect).reshape(-1, 3)
         mean = np.median(region, axis=0).astype(np.float64)
         if np.any(mean <= 1e-5):
