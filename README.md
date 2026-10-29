@@ -53,6 +53,11 @@ abgestimmt.
 - **Automatische Bildfeld-Erkennung**: Filmhalter, Klammern, Filmrand und
   durchscheinendes Leuchtpult werden beim Import weggeschnitten
 - Filmbasis-Pipette (mit Warnung bei übersteuerter Basis), Schwarz-/Weiß-Clipping, Analyse-Rand
+- **S/W-Negative werden automatisch erkannt**
+- **Im Scan beschnittene Kanäle** (typisch: Rot bei Kamera-Scans) werden erkannt,
+  der Schwarzpunkt geschätzt und die beschnittenen Werte aus den intakten
+  Kanälen rekonstruiert
+- **Automatische Graubalance** an fast neutralen Motivteilen (abschaltbar)
 - Gekoppelte oder kanalweise Analyse, Kanal-Feinabstimmung (Schwarz-/Weißpunkt R/G/B)
 - **Analyse sperren** + **Auf alle**: identische Abstimmung für eine ganze Filmrolle
 

@@ -17,7 +17,7 @@ import path from 'node:path';
 import { decodeTiff, encodeTiff16 } from '../js/core/tiff.js';
 import { defaultSettings, normalizeSettings, floatToU16, autoExposure } from '../js/core/pipeline.js';
 import { renderFull, resolveLevels, analysisImage } from '../js/core/render.js';
-import { detectFrame } from '../js/core/autocrop.js';
+import { detectFrame, detectFilmType } from '../js/core/autocrop.js';
 import { encodePNG } from './png.mjs';
 
 function parseArgs(argv) {
@@ -55,6 +55,7 @@ for (const file of files) {
   const buf = fs.readFileSync(file);
   const src = await decodeTiff(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
   const settings = structuredClone(base);
+  if (!opt.type && !opt.settings && detectFilmType(src) === 'bw') settings.film.type = 'bw';
   if (!opt.noCrop && !settings.geometry.crop) settings.geometry.crop = detectFrame(src, settings);
   const levels = resolveLevels(src, settings);
   // wie die App: automatische Belichtung, sofern nichts vorgegeben ist

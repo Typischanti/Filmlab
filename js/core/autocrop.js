@@ -81,12 +81,12 @@ export function detectFrameInImage(img, type) {
   // übersprungen werden, wenn direkt dahinter eindeutig Rand folgt.
   const skip = (pos, dir, frac, size) => {
     const look = Math.max(3, Math.round(size * 0.03));
-    const need = Math.max(2, Math.round(size * 0.006));
+    const need = Math.max(2, Math.round(size * 0.004));
     let run = 0;
     for (let k = 1; k <= look; k++) {
       const p = pos + dir * k;
       if (p < 0 || p >= size) break;
-      run = frac(p) > 0.85 ? run + 1 : 0;
+      run = frac(p) > 0.8 ? run + 1 : 0;
       if (run >= need) return k;
     }
     return 0;
@@ -172,4 +172,22 @@ export function detectFrameInImage(img, type) {
   if (rect.w * rect.h < 0.12) return null;
   if (rect.w > 0.97 && rect.h > 0.97) return null; // bereits randlos
   return rect;
+}
+
+// Filmtyp erkennen: S/W-Negative sind (bis auf die neutrale Basis) farblos,
+// Farbnegative durch die orange Maske stark gefärbt. Dias werden nicht
+// automatisch erkannt.
+export function detectFilmType(src) {
+  const small = fitDownscale(src, 400);
+  const d = small.data;
+  let sum = 0, n = 0, maxLum = 0;
+  for (let i = 0; i < d.length; i += 3) maxLum = Math.max(maxLum, d[i] + d[i + 1] + d[i + 2]);
+  for (let i = 0; i < d.length; i += 3) {
+    const l = d[i] + d[i + 1] + d[i + 2];
+    if (l < maxLum * 0.15) continue; // Halter
+    sum += (Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2])) / 65535;
+    n++;
+  }
+  if (!n) return null;
+  return sum / n < 0.06 ? 'bw' : 'color';
 }

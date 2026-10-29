@@ -8,7 +8,7 @@ import {
   makeMapping, extract, fitDownscale, orientedSize, FULL_RECT, cropPixelSize,
 } from './core/geometry.js';
 import { renderFull, resolveLevels, analysisImage, PREVIEW_MAX } from './core/render.js';
-import { detectFrame } from './core/autocrop.js';
+import { detectFrame, detectFilmType } from './core/autocrop.js';
 import { BUILTIN_PRESETS, applyLook, extractLook, loadUserPresets, saveUserPresets } from './core/presets.js';
 import { decodeFile, encodeOutput, extensionFor, downloadBlob, pickDirectory, writeToDirectory } from './io.js';
 import { el, getPath, setPath, slider, segmented, select, checkbox, section, TRACKS, bandTrack } from './ui/controls.js';
@@ -156,6 +156,11 @@ async function prepareNew(entry, dec) {
   if (entry.restored || entry.prepared) return;
   entry.prepared = true;
   const s = entry.settings;
+  // S/W-Negative erkennen
+  if (detectFilmType(dec.preview) === 'bw') {
+    s.film.type = 'bw';
+    entry.autoBW = true;
+  }
   // Bildfeld erkennen, damit Filmhalter und Filmrand die Analyse nicht stören
   if (!s.geometry.crop) {
     const rect = detectFrame(dec.preview, s);
@@ -183,9 +188,12 @@ async function selectImage(index) {
     const dec = await getDecoded(entry);
     if (active() !== entry) return;
     await prepareNew(entry, dec);
-    if (entry.autoCropped) {
-      entry.autoCropped = false;
-      toast('Bildfeld automatisch erkannt – anpassen mit „Zuschneiden“ (C).');
+    if (entry.autoCropped || entry.autoBW) {
+      const parts = [];
+      if (entry.autoBW) parts.push('S/W-Negativ erkannt');
+      if (entry.autoCropped) parts.push('Bildfeld automatisch erkannt – anpassen mit „Zuschneiden“ (C)');
+      entry.autoCropped = entry.autoBW = false;
+      toast(parts.join(' · '), false, 4000);
     }
     view.key = '';
     view.lutKey = '';
@@ -299,7 +307,7 @@ function scheduleRender() {
 function analysisKey(s) {
   const f = s.film;
   const g = s.geometry;
-  return JSON.stringify([f.type, f.inputGamma, f.base, f.blackMode, f.clipBlack, f.clipWhite, f.border, f.linked, g.rotation, g.flipH, g.flipV, g.angle, g.crop]);
+  return JSON.stringify([f.type, f.inputGamma, f.base, f.blackMode, f.clipBlack, f.clipWhite, f.border, f.linked, f.autoNeutral, g.rotation, g.flipH, g.flipV, g.angle, g.crop]);
 }
 
 function ensureLevels(entry, dec) {
@@ -583,6 +591,11 @@ function buildPanel() {
     bind('film.clipBlack', { label: 'Schwarz-Clipping', min: 0, max: 2, step: 0.01, unit: ' %', title: 'Anteil der Pixel, die rein schwarz werden dürfen' }),
     bind('film.clipWhite', { label: 'Weiß-Clipping', min: 0, max: 2, step: 0.01, unit: ' %', title: 'Anteil der Pixel, die rein weiß werden dürfen' }),
     bind('film.border', { label: 'Analyse-Rand ignorieren', min: 0, max: 20, step: 1, unit: ' %' }),
+    reg(checkbox('Automatische Graubalance', () => S()?.film.autoNeutral !== false, (v) => {
+      const s = S(); if (!s) return;
+      s.film.autoNeutral = v;
+      commit(); changed();
+    }, 'Entfernt einen Reststich anhand fast neutraler Motivteile (Wolken, Asphalt, Weißes). Kräftige Farben bleiben unberührt.')),
     reg(checkbox('Kanäle gekoppelt analysieren', () => S()?.film.linked, (v) => {
       const s = S(); if (!s) return;
       s.film.linked = v;

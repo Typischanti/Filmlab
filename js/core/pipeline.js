@@ -47,6 +47,7 @@ export function defaultSettings() {
       clipBlack: 0.1,         // % Pixel, die in Schwarz clippen dürfen
       clipWhite: 0.05,        // % Pixel, die in Weiß clippen dürfen
       border: 4,              // % Rand, der bei der Analyse ignoriert wird
+      autoNeutral: true,      // Graubalance an fast neutralen Motivteilen feinabgleichen
       linked: false,          // Kanäle gemeinsam normieren (Farben des Scans erhalten, Standard bei Dias)
       lockLevels: false,      // Analysewerte einfrieren (z. B. für eine ganze Rolle)
       levels: null,           // { lo:[3], hi:[3] } Dichte-Schwarz/Weißpunkt
@@ -189,6 +190,8 @@ export function analyze(img, settings) {
   const hi = [0, 0, 0];
   let clipInfo = null;
   let clipFrac = null;
+  let clipK = null;
+  let clipMask = null;
   const pb = film.clipBlack / 100;
   const pw = film.clipWhite / 100;
   for (let c = 0; c < 3; c++) {
@@ -226,6 +229,7 @@ export function analyze(img, settings) {
       // beim Rendern werden die beschnittenen Werte rekonstruiert
       clipInfo = bad.map((b) => (b ? hiCut : 0));
       clipFrac = frac;
+      clipMask = bad;
     }
   }
 
@@ -250,7 +254,83 @@ export function analyze(img, settings) {
       if (hi[c] - lo[c] < 0.05) hi[c] = lo[c] + 0.05;
     }
   }
-  return clipInfo ? { lo, hi, clip: clipInfo, clipFrac } : { lo, hi };
+  // Feinabgleich der Graubalance an fast neutralen Motivteilen
+  if (film.autoNeutral !== false && film.type === 'color') {
+    neutralize(img, { lo, hi }, film, hiCut, holderCut, bx, by);
+  }
+  if (clipMask) clipK = learnClipOffsets(img, { lo, hi }, film, clipMask, hiCut, holderCut, bx, by);
+  return clipInfo ? { lo, hi, clip: clipInfo, clipFrac, clipK } : { lo, hi };
+}
+
+// Automatische Graubalance: Pixel, die nach der Umwandlung schon fast
+// neutral sind (Wolken, Asphalt, Weißes, Metall), sollen es ganz werden.
+// Der gemeinsame Reststich wird als Verschiebung im Belichtungsraum
+// entfernt (begrenzt), kräftige Farben bestimmen das Ergebnis nicht mit.
+function neutralize(img, levels, film, clipCode, holderCut, bx, by) {
+  const dt = densityTable(film.inputGamma, film.type);
+  const W = img.width, H = img.height, d = img.data;
+  const step = Math.max(1, Math.floor(Math.sqrt(((W - 2 * bx) * (H - 2 * by)) / 40000)));
+  const xs = [];
+  for (let y = by; y < H - by; y += step) {
+    for (let x = bx; x < W - bx; x += step) {
+      const i = (y * W + x) * 3;
+      if (d[i] >= clipCode || d[i + 1] >= clipCode || d[i + 2] >= clipCode) continue;
+      if (holderCut && Math.max(d[i], d[i + 1], d[i + 2]) < holderCut) continue;
+      xs.push(channelX(dt[d[i]], 0, levels, film), channelX(dt[d[i + 1]], 1, levels, film), channelX(dt[d[i + 2]], 2, levels, film));
+    }
+  }
+  const n = xs.length / 3;
+  if (n < 100) return;
+  const off = [0, 0, 0];
+  for (let iter = 0; iter < 4; iter++) {
+    const dev = [[], [], []];
+    for (let k = 0; k < n; k++) {
+      const r = xs[k * 3] + off[0], g = xs[k * 3 + 1] + off[1], b = xs[k * 3 + 2] + off[2];
+      const m = (r + g + b) / 3;
+      if (m < 0.15 || m > 0.97) continue;
+      if (Math.max(r, g, b) - Math.min(r, g, b) > 0.04) continue;
+      dev[0].push(r - m); dev[1].push(g - m); dev[2].push(b - m);
+    }
+    if (dev[0].length < n * 0.02) break;
+    for (let c = 0; c < 3; c++) {
+      dev[c].sort((a, b) => a - b);
+      off[c] = clamp(off[c] - dev[c][dev[c].length >> 1], -0.05, 0.05);
+    }
+  }
+  // Verschiebung in x entspricht einer Verschiebung von Schwarz- und Weißpunkt
+  for (let c = 0; c < 3; c++) {
+    const span = levels.hi[c] - levels.lo[c];
+    levels.lo[c] -= off[c] * span * 0.7;
+    levels.hi[c] -= off[c] * span * 0.7;
+  }
+}
+
+// Lernt aus Pixeln knapp unterhalb des Clippings, wie weit der beschnittene
+// Kanal (in normierter Log-Belichtung) über dem Mittel der intakten Kanäle
+// liegt. Damit werden die beschnittenen Pixel motivgerecht rekonstruiert.
+function learnClipOffsets(img, levels, film, bad, clipCode, holderCut, bx, by) {
+  const dt = densityTable(film.inputGamma, film.type);
+  const good = [0, 1, 2].filter((c) => !bad[c]);
+  const W = img.width, H = img.height, d = img.data;
+  const band = clipCode * 0.12;
+  return [0, 1, 2].map((c) => {
+    if (!bad[c]) return 0;
+    const diffs = [];
+    for (let y = by; y < H - by; y++) {
+      let i = (y * W + bx) * 3;
+      for (let x = bx; x < W - bx; x++, i += 3) {
+        const v = d[i + c];
+        if (v >= clipCode || v < clipCode - band) continue;
+        if (holderCut && Math.max(d[i], d[i + 1], d[i + 2]) < holderCut) continue;
+        let m = 0;
+        for (const g of good) m += channelX(dt[d[i + g]], g, levels, film);
+        diffs.push(channelX(dt[v], c, levels, film) - m / good.length);
+      }
+    }
+    if (diffs.length < 20) return 0;
+    diffs.sort((a, b) => a - b);
+    return diffs[diffs.length >> 1];
+  });
 }
 
 // Schwelle für „zu dunkel für Film“: Selbst die dichteste Stelle eines
@@ -278,6 +358,7 @@ export function grayCode(r, g, b) {
 // Tonwertkurve
 
 const TONE_SIZE = 8192;
+const X_TABLE_SIZE = 4096;
 const TONE_MIN = -0.5;
 const TONE_MAX = 1.5;
 
@@ -410,6 +491,22 @@ export function buildLUTs(settings, levels) {
     luts.push(lut);
   }
   if (bw) { luts.push(luts[0], luts[0]); }
+  // Tabellen x -> Anzeigewert für die Rekonstruktion beschnittener Kanäle
+  if (levels.clip && !bw) {
+    luts.xTables = levels.clip.map((cl, c) => {
+      if (!cl) return null;
+      const t = new Float32Array(X_TABLE_SIZE);
+      const ct = chans[c];
+      for (let i = 0; i < X_TABLE_SIZE; i++) {
+        const x = TONE_MIN + ((TONE_MAX - TONE_MIN) * i) / (X_TABLE_SIZE - 1);
+        let y = sampleTone(tt, x + wbo[c]);
+        if (!masterId) y = sampleTable(master, clamp(y, 0, 1));
+        if (ct) y = sampleTable(ct, clamp(y, 0, 1));
+        t[i] = y;
+      }
+      return t;
+    });
+  }
   return luts;
 }
 
@@ -692,24 +789,29 @@ function applyGrain(buf, w, h, detail, scale, origin) {
 
 // Im Scan beschnittene Kanäle (Negativ: zu hell -> echte Dichte unbekannt,
 // aber sicher geringer, also im Positiv dunkler): Wert aus den intakten
-// Kanälen schätzen, nie heller als gemessen, weich übergeblendet.
-function reconstructClipped(buf, codes, n, clip) {
+// Kanälen und dem im Bild gelernten Kanalabstand schätzen, nie heller als
+// gemessen, weich übergeblendet.
+function reconstructClipped(buf, codes, n, levels, film, xTables) {
+  const clip = levels.clip;
   const bad = clip.map((c) => c > 0);
   const good = [0, 1, 2].filter((c) => !bad[c]);
-  if (!good.length) return;
+  if (!good.length || !xTables) return;
+  const dt = densityTable(film.inputGamma, film.type);
+  const k = levels.clipK || [0, 0, 0];
   const ramp = clip.map((c) => (c > 0 ? Math.max(1, c * 0.04) : 1));
   for (let i = 0; i < n * 3; i += 3) {
-    let other = 0;
-    for (const c of good) other += buf[i + c];
-    other /= good.length;
     for (let c = 0; c < 3; c++) {
       if (!bad[c]) continue;
       const v = codes[i + c];
       const start = clip[c] - ramp[c];
       if (v <= start) continue;
+      let m = 0;
+      for (const g of good) m += channelX(dt[codes[i + g]], g, levels, film);
+      const xe = m / good.length + k[c];
+      const ye = sampleTable(xTables[c], (xe - TONE_MIN) / (TONE_MAX - TONE_MIN));
       const w = Math.min(1, (v - start) / ramp[c]);
       const y = buf[i + c];
-      buf[i + c] = y + w * (Math.min(y, other) - y);
+      buf[i + c] = y + w * (Math.min(y, ye) - y);
     }
   }
 }
@@ -736,7 +838,7 @@ export function processToFloat(img, settings, levels, luts, opts = {}) {
       buf[i + 2] = lb[d[i + 2]];
     }
   }
-  if (levels.clip && settings.film.type !== 'bw') reconstructClipped(buf, d, n, levels.clip);
+  if (levels.clip && settings.film.type !== 'bw') reconstructClipped(buf, d, n, levels, settings.film, luts.xTables);
   if (colorOpsActive(settings)) applyColor(buf, n, prepareColor(settings));
   const scale = opts.scale ?? 1;
   if (settings.detail.sharpen > 0) applySharpen(buf, img.width, img.height, settings.detail, scale);
