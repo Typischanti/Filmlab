@@ -43,6 +43,28 @@ Statt das Bild einfach zu invertieren, arbeitet Filmlab wie ein Fotolabor im
 6. Eine Auto-Belichtung legt die Mitteltöne neutral, ohne Spitzlichter
    ausfressen zu lassen; Low-Key-Bilder behalten ihren Charakter.
 
+### Analoger Abzug (Standard)
+
+Im Tonmodell „Analoger Abzug“ wird der Weg vom Negativ zum Farbabzug im
+Labor nachgebildet:
+
+1. **Negativ:** normierte Dichte jeder Farbschicht (Negativgradation ≈ 0,6).
+2. **Vergrößerer:** Das Licht belichtet durch das Negativ das Papier –
+   Belichtung entspricht der Belichtungszeit, Weißabgleich den Farbfiltern
+   im Filterkopf (Verschiebung der Belichtung je Papierschicht).
+3. **RA-4-Fotopapier:** Schwärzungskurve je Schicht mit weichem Fuß gegen
+   Papierweiß (Dmin ≈ 0,08), gerader Gradation und Schulter gegen
+   Papierschwarz (Dmax ≈ 2,3). „Kontrast“ wählt die Papiergradation,
+   „Lichter-Rolloff“ die Weichheit des Fußes.
+4. **Papierfarbstoffe:** Cyan, Magenta und Gelb absorbieren auch ungewollt
+   in den Nachbarbereichen; das ergibt den typischen Farbcharakter eines
+   Abzugs (Regler „Papierfarbstoffe“, Grau bleibt neutral).
+5. **Betrachtung:** Reflexion = 10^−Dichte; Papierweiß wird Bildschirmweiß,
+   Papierschwarz Bildschirmschwarz.
+
+Das frühere lineare Modell steht als „Digital“ zur Verfügung (Dias nutzen es
+automatisch).
+
 Die Standardwerte wurden mit simulierten Farbnegativen (Filmmodell mit oranger
 Maske, schichtabhängiger Gradation, Toe und Schulter) gegen die Originalfotos
 abgestimmt.

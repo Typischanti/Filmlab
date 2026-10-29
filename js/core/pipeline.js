@@ -57,6 +57,7 @@ export function defaultSettings() {
       chanWhite: [0, 0, 0],
     },
     tone: {
+      model: 'print',         // 'print' = analoger Farbabzug (RA-4), 'digital' = lineares Modell
       exposure: 0,            // Blendenstufen
       rolloff: DEFAULT_ROLLOFF, // Weichheit des Übergangs in die Lichter (0..100)
       contrast: 10,           // -100..100
@@ -67,7 +68,7 @@ export function defaultSettings() {
       blacks: 0,
     },
     wb: { temp: 0, tint: 0 },
-    color: { vibrance: 20, saturation: 0 },
+    color: { vibrance: 20, saturation: 0, paperDyes: 70 },
     hsl,
     grading: {
       shadows: { hue: 215, sat: 0 },
@@ -439,10 +440,7 @@ export function toneFunction(tone) {
   const shoulder = shoulderFunction(tone.rolloff ?? DEFAULT_ROLLOFF);
   const k = contrastK(tone.contrast);
   const p = 0.45;
-  const sh = tone.shadows / 100;
-  const hl = tone.highlights / 100;
-  const wh = tone.whites / 100;
-  const bl = tone.blacks / 100;
+  const post = postAdjust(tone);
   return (x) => {
     // Belichtung multiplikativ im linearen Licht: Schwarz bleibt Schwarz
     const lin = shoulder((gain * (Math.pow(10, (x - 1) * R) - floor)) / (1 - floor));
@@ -453,7 +451,17 @@ export function toneFunction(tone) {
     else if (v >= 1) y = 1;
     else if (v < p) y = p * Math.pow(v / p, k);
     else y = 1 - (1 - p) * Math.pow((1 - v) / (1 - p), k);
-    // Tiefen / Lichter / Weiß / Schwarz
+    return post(y);
+  };
+}
+
+// Tiefen / Lichter / Weiß / Schwarz als Feinkorrektur auf dem Anzeigewert.
+function postAdjust(tone) {
+  const sh = tone.shadows / 100;
+  const hl = tone.highlights / 100;
+  const wh = tone.whites / 100;
+  const bl = tone.blacks / 100;
+  return (y) => {
     const yc = clamp(y, 0, 1);
     const inv = 1 - yc;
     y += sh * 0.22 * (yc * inv * inv * 6.75);
@@ -462,6 +470,140 @@ export function toneFunction(tone) {
     y += bl * 0.10 * inv * inv * inv;
     return y;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Analoges Abzugsmodell (Farbnegativ -> Vergrößerer -> RA-4-Fotopapier)
+//
+// 1. Negativdichte: normierte Dichte x (0 = dünn/Schatten, 1 = dicht/Lichter)
+//    entspricht NR = Motivumfang · Negativgradation (≈ 0,6) Dichteeinheiten.
+// 2. Vergrößerer: Das Licht durch das Negativ belichtet das Papier,
+//    log E = -Negativdichte + Belichtung + Farbfilterung (= Weißabgleich).
+// 3. Papier: Schwärzungskurve je Schicht mit weichem Fuß (Lichter laufen
+//    gegen Papierweiß Dmin) und Schulter (Schatten gegen Dmax).
+// 4. Papierfarbstoffe: Cyan, Magenta, Gelb absorbieren auch ungewollt in
+//    den Nachbarbereichen (Matrix, für Grau neutral normiert).
+// 5. Betrachtung: Reflexion 10^-D, Papierweiß = Bildschirmweiß,
+//    Papierschwarz = Bildschirmschwarz (Schwarzpunktkompensation).
+
+export const PAPER = {
+  dmin: 0.08,
+  dmax: 2.3,
+  gammaNeg: 0.6,       // typische Gradation eines Farbnegativfilms
+  systemGamma: 1.1,    // Negativ x Papier: Abzüge sind etwas kontrastreicher als das Motiv
+  shoulder: 0.3,       // Weichheit zum Papierschwarz (Dichte)
+  whiteTarget: 0.07,   // Dichte über Papierweiß am gemessenen Weißpunkt
+  // ungewollte Nebenabsorptionen der Papierfarbstoffe (Zeilen: R, G, B; Spalten: C, M, Y)
+  dyes: [[1.0, 0.08, 0.02], [0.22, 1.0, 0.1], [0.08, 0.3, 1.0]],
+};
+
+const softplus = (u, k) => (u / k > 30 ? u : k * Math.log1p(Math.exp(u / k)));
+
+export function usesPrintModel(settings) {
+  return (settings.tone.model ?? 'print') === 'print' && settings.film.type !== 'positive';
+}
+
+// x -> Farbstoffdichte des Papiers (größer = dunkler).
+export function printDensityFunction(tone) {
+  const R = Math.max(1, tone.range) * LOG2;
+  const NR = R * PAPER.gammaNeg;
+  const gp = (PAPER.systemGamma * contrastK(tone.contrast)) / PAPER.gammaNeg;
+  const t = 0.04 + (clamp(tone.rolloff ?? DEFAULT_ROLLOFF, 0, 100) / 100) * 0.36;
+  // Gerade so legen, dass der Weißpunkt (x = 1) nach dem weichen Fuß bei
+  // PAPER.whiteTarget über Papierweiß liegt.
+  const wt = Math.min(PAPER.whiteTarget, t * 0.69);
+  const delta = t * Math.log(Math.expm1(wt / t));
+  const ev = tone.exposure * LOG2 * PAPER.gammaNeg;
+  const { dmin, dmax, shoulder } = PAPER;
+  return (x) => {
+    const dl = dmin + delta + gp * (NR * (1 - x) - ev);
+    const d1 = dmin + softplus(dl - dmin, t);
+    return dmax - softplus(dmax - d1, shoulder);
+  };
+}
+
+// Normierte Farbstoffmatrix (Grau bleibt Grau), Stärke 0..1.
+export function dyeMatrix(strength) {
+  const m = PAPER.dyes.map((row) => {
+    const sum = row[0] + row[1] + row[2];
+    return row.map((v) => v / sum);
+  });
+  return m.map((row, r) => row.map((v, c) => (r === c ? 1 : 0) * (1 - strength) + v * strength));
+}
+
+const DISPLAY_SIZE = 4096;
+const D_MIN_T = -0.3;
+const D_MAX_T = 2.6;
+
+// Papierdichte -> Anzeigewert (inkl. Feinkorrekturen und Kurven).
+function displayTables(settings) {
+  const post = postAdjust(settings.tone);
+  const master = curveTable(settings.curves.master);
+  const masterId = isIdentityCurve(settings.curves.master);
+  const rk = Math.pow(10, -(PAPER.dmax - PAPER.dmin));
+  const base = new Float32Array(DISPLAY_SIZE);
+  for (let i = 0; i < DISPLAY_SIZE; i++) {
+    const D = D_MIN_T + ((D_MAX_T - D_MIN_T) * i) / (DISPLAY_SIZE - 1);
+    const refl = Math.pow(10, -(D - PAPER.dmin));
+    const lin = (refl - rk) / (1 - rk);
+    let y = lin < 0 ? lin * 12.92 : linearToSrgb(lin);
+    y = post(y);
+    if (!masterId) y = sampleTable(master, clamp(y, 0, 1));
+    base[i] = y;
+  }
+  const bw = settings.film.type === 'bw';
+  return ['r', 'g', 'b'].map((k) => {
+    if (bw || isIdentityCurve(settings.curves[k])) return base;
+    const ct = curveTable(settings.curves[k]);
+    const t = new Float32Array(DISPLAY_SIZE);
+    for (let i = 0; i < DISPLAY_SIZE; i++) t[i] = sampleTable(ct, clamp(base[i], 0, 1));
+    return t;
+  });
+}
+
+function sampleDisplay(t, D) {
+  return sampleTable(t, (D - D_MIN_T) / (D_MAX_T - D_MIN_T));
+}
+
+// Papierdichten (in buf) -> Anzeigewerte, mit Farbstoff-Matrix.
+function applyPrint(buf, n, settings, tables) {
+  const bw = settings.film.type === 'bw';
+  const strength = bw ? 0 : clamp((settings.color.paperDyes ?? 70) / 100, 0, 1);
+  const M = dyeMatrix(strength);
+  const [tr, tg, tb] = tables;
+  for (let i = 0; i < n * 3; i += 3) {
+    const c = buf[i], m = buf[i + 1], y = buf[i + 2];
+    buf[i] = sampleDisplay(tr, M[0][0] * c + M[0][1] * m + M[0][2] * y);
+    buf[i + 1] = sampleDisplay(tg, M[1][0] * c + M[1][1] * m + M[1][2] * y);
+    buf[i + 2] = sampleDisplay(tb, M[2][0] * c + M[2][1] * m + M[2][2] * y);
+  }
+}
+
+// Kanalfunktion x -> Wert der ersten Stufe (Druck: Papierdichte, digital: Anzeige).
+function stageFunction(settings, levels) {
+  if (usesPrintModel(settings)) return printDensityFunction(settings.tone);
+  const tt = toneTable(effectiveTone(settings, levels));
+  return (x) => sampleTone(tt, x);
+}
+
+// Komplette Abbildung (xr, xg, xb) -> Anzeige-RGB, z. B. für die Auto-Belichtung.
+export function makeColorTransform(settings, levels) {
+  if (usesPrintModel(settings)) {
+    const f = printDensityFunction(settings.tone);
+    const tables = displayTables(settings);
+    const strength = settings.film.type === 'bw' ? 0 : clamp((settings.color.paperDyes ?? 70) / 100, 0, 1);
+    const M = dyeMatrix(strength);
+    return (xr, xg, xb) => {
+      const c = f(xr), m = f(xg), y = f(xb);
+      return [
+        sampleDisplay(tables[0], M[0][0] * c + M[0][1] * m + M[0][2] * y),
+        sampleDisplay(tables[1], M[1][0] * c + M[1][1] * m + M[1][2] * y),
+        sampleDisplay(tables[2], M[2][0] * c + M[2][1] * m + M[2][2] * y),
+      ];
+    };
+  }
+  const f = toneFunction(effectiveTone(settings, levels));
+  return (xr, xg, xb) => [f(xr), f(xg), f(xb)];
 }
 
 export function toneTable(tone) {
@@ -538,7 +680,11 @@ export function effectiveTone(settings, levels) {
 export function buildLUTs(settings, levels) {
   const film = settings.film;
   const dt = densityTable(film.inputGamma, film.type);
-  const tt = toneTable(effectiveTone(settings, levels));
+  const print = usesPrintModel(settings);
+  const tt = print ? null : toneTable(effectiveTone(settings, levels));
+  // Druckmodell: erste Stufe liefert Papierdichte, als Tabelle über x
+  const pt = print ? xTable(printDensityFunction(settings.tone)) : null;
+  const stage = print ? (x) => sampleX(pt, x) : (x) => sampleTone(tt, x);
   const bw = film.type === 'bw';
   const wbo = bw ? [0, 0, 0] : wbOffsets(effectiveWb(settings));
   const master = curveTable(settings.curves.master);
@@ -559,9 +705,11 @@ export function buildLUTs(settings, levels) {
       const d = dt[i];
       if (d === prevD) { lut[i] = prevY; continue; }
       let x = ((d - lo) / span - cb) / (cw - cb) + wbo[c];
-      let y = sampleTone(tt, x);
-      if (!masterId) y = sampleTable(master, clamp(y, 0, 1));
-      if (ct) y = sampleTable(ct, clamp(y, 0, 1));
+      let y = stage(x);
+      if (!print) {
+        if (!masterId) y = sampleTable(master, clamp(y, 0, 1));
+        if (ct) y = sampleTable(ct, clamp(y, 0, 1));
+      }
       lut[i] = y;
       prevD = d;
       prevY = y;
@@ -577,15 +725,29 @@ export function buildLUTs(settings, levels) {
       const ct = chans[c];
       for (let i = 0; i < X_TABLE_SIZE; i++) {
         const x = TONE_MIN + ((TONE_MAX - TONE_MIN) * i) / (X_TABLE_SIZE - 1);
-        let y = sampleTone(tt, x + wbo[c]);
-        if (!masterId) y = sampleTable(master, clamp(y, 0, 1));
-        if (ct) y = sampleTable(ct, clamp(y, 0, 1));
+        let y = stage(x + wbo[c]);
+        if (!print) {
+          if (!masterId) y = sampleTable(master, clamp(y, 0, 1));
+          if (ct) y = sampleTable(ct, clamp(y, 0, 1));
+        }
         t[i] = y;
       }
       return t;
     });
   }
+  luts.print = print;
+  if (print) luts.display = displayTables(settings);
   return luts;
+}
+
+function xTable(f) {
+  const t = new Float32Array(TONE_SIZE);
+  for (let i = 0; i < TONE_SIZE; i++) t[i] = f(TONE_MIN + ((TONE_MAX - TONE_MIN) * i) / (TONE_SIZE - 1));
+  return t;
+}
+
+function sampleX(t, x) {
+  return sampleTable(t, (x - TONE_MIN) / (TONE_MAX - TONE_MIN));
 }
 
 // ---------------------------------------------------------------------------
@@ -870,7 +1032,7 @@ function applyGrain(buf, w, h, detail, scale, origin) {
 // aber sicher geringer, also im Positiv dunkler): Wert aus den intakten
 // Kanälen und dem im Bild gelernten Kanalabstand schätzen, nie heller als
 // gemessen, weich übergeblendet.
-function reconstructClipped(buf, codes, n, levels, film, xTables) {
+function reconstructClipped(buf, codes, n, levels, film, xTables, print) {
   const clip = levels.clip;
   const bad = clip.map((c) => c > 0);
   const good = [0, 1, 2].filter((c) => !bad[c]);
@@ -891,7 +1053,9 @@ function reconstructClipped(buf, codes, n, levels, film, xTables) {
       const ye = sampleTable(xTables[c], (xe - TONE_MIN) / (TONE_MAX - TONE_MIN));
       const w = Math.min(1, (v - start) / ramp[c]) * strength;
       const y = buf[i + c];
-      buf[i + c] = y + w * (Math.min(y, ye) - y);
+      // nie heller als gemessen (Druck: Dichte, größer = dunkler)
+      const darker = print ? Math.max(y, ye) : Math.min(y, ye);
+      buf[i + c] = y + w * (darker - y);
     }
   }
 }
@@ -918,7 +1082,8 @@ export function processToFloat(img, settings, levels, luts, opts = {}) {
       buf[i + 2] = lb[d[i + 2]];
     }
   }
-  if (levels.clip && settings.film.type !== 'bw') reconstructClipped(buf, d, n, levels, settings.film, luts.xTables);
+  if (levels.clip && settings.film.type !== 'bw') reconstructClipped(buf, d, n, levels, settings.film, luts.xTables, luts.print);
+  if (luts.print) applyPrint(buf, n, settings, luts.display);
   if (colorOpsActive(settings)) applyColor(buf, n, prepareColor(settings));
   const scale = opts.scale ?? 1;
   if (settings.detail.sharpen > 0) applySharpen(buf, img.width, img.height, settings.detail, scale);
@@ -1026,8 +1191,11 @@ export function autoExposure(img, settings, levels) {
   const m = xs.length / 3;
   const L = new Float32Array(m);
   const stats = (ev) => {
-    const f = toneFunction({ ...effectiveTone(settings, levels), exposure: ev });
-    for (let k = 0; k < m; k++) L[k] = luma(f(xs[k * 3]), f(xs[k * 3 + 1]), f(xs[k * 3 + 2]));
+    const f = makeColorTransform({ ...settings, tone: { ...settings.tone, exposure: ev } }, levels);
+    for (let k = 0; k < m; k++) {
+      const [r, g, b] = f(xs[k * 3], xs[k * 3 + 1], xs[k * 3 + 2]);
+      L[k] = luma(r, g, b);
+    }
     const sorted = Float32Array.from(L).sort();
     const at = (p) => sorted[Math.min(m - 1, Math.floor(p * m))];
     return { med: at(0.5), hi: at(0.995) };

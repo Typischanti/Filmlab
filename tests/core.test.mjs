@@ -77,9 +77,12 @@ test('Pipette setzt neutralen Weißabgleich', () => {
   const i = (8 * img.width + 32) * 3;
   const codes = [img.data[i], img.data[i + 1], img.data[i + 2]];
   s.wb = neutralWb(codes, s, levels);
-  const luts = buildLUTs(s, levels);
-  const r = luts[0][codes[0]], g = luts[1][codes[1]], b = luts[2][codes[2]];
-  assert.ok(Math.max(r, g, b) - Math.min(r, g, b) < 0.01, `${r} ${g} ${b}`);
+  s.film.scanCorrection = false;
+  s.wb.temp = neutralWb(codes, s, levels).temp;
+  const px = createImage(1, 1);
+  px.data.set(codes);
+  const o = processToFloat(px, s, levels, buildLUTs(s, levels));
+  assert.ok(Math.max(...o) - Math.min(...o) < 0.01, `${o[0]} ${o[1]} ${o[2]}`);
 });
 
 test('Tonkurve ist monoton und bildet 0..1 ab', () => {
@@ -225,12 +228,14 @@ test('Kamera-Scan-Korrektur wärmt leicht und Pipette bleibt neutral', () => {
   const levels = analyze(img, s);
   const i = (8 * img.width + 32) * 3;
   const codes = [img.data[i], img.data[i + 1], img.data[i + 2]];
-  let luts = buildLUTs(s, levels);
-  assert.ok(luts[0][codes[0]] > luts[2][codes[2]], 'Grau soll leicht warm werden');
+  const px = createImage(1, 1);
+  px.data.set(codes);
+  const render = () => processToFloat(px, s, levels, buildLUTs(s, levels));
+  let o = render();
+  assert.ok(o[0] > o[2], 'Grau soll leicht warm werden');
   s.wb = neutralWb(codes, s, levels);
-  luts = buildLUTs(s, levels);
-  const r = luts[0][codes[0]], g = luts[1][codes[1]], b = luts[2][codes[2]];
-  assert.ok(Math.max(r, g, b) - Math.min(r, g, b) < 0.01, `${r} ${g} ${b}`);
+  o = render();
+  assert.ok(Math.max(...o) - Math.min(...o) < 0.01, `${o[0]} ${o[1]} ${o[2]}`);
 });
 
 test('Eingebelichtetes Datum verfälscht den Weißpunkt nicht', () => {
@@ -251,4 +256,22 @@ test('Eingebelichtetes Datum verfälscht den Weißpunkt nicht', () => {
   const i = (10 * 200 + 185) * 3; // hellste Stelle des Graukeils
   assert.ok(Math.max(out[i], out[i + 1], out[i + 2]) - Math.min(out[i], out[i + 1], out[i + 2]) < 0.04,
     `Weiß nicht neutral: ${out[i]} ${out[i + 1]} ${out[i + 2]}`);
+});
+
+test('Abzugsmodell: Graukeil neutral, monoton, Weiß weich und Schwarz tief', async () => {
+  const { makeColorTransform } = await import('../js/core/pipeline.js');
+  const s = defaultSettings();
+  s.film.scanCorrection = false;
+  const f = makeColorTransform(s, null);
+  let prev = -Infinity;
+  for (let i = 0; i <= 140; i++) {
+    const x = -0.2 + i / 100;
+    const [r, g, b] = f(x, x, x);
+    assert.ok(Math.abs(r - g) < 1e-6 && Math.abs(g - b) < 1e-6, 'Grau muss grau bleiben');
+    assert.ok(g >= prev - 1e-9, 'monoton');
+    assert.ok(g <= 1.0001, 'nie über Weiß');
+    prev = g;
+  }
+  assert.ok(f(1, 1, 1)[0] > 0.85 && f(1, 1, 1)[0] < 0.97, 'Weißpunkt knapp unter Papierweiß');
+  assert.ok(f(0, 0, 0)[0] < 0.02, 'Schatten laufen in Papierschwarz');
 });

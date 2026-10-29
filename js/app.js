@@ -628,11 +628,15 @@ function buildPanel() {
 
   // --- Ton
   sections.tone = section('Belichtung & Kontrast', true, [
+    el('div', { class: 'row' }, el('span', { class: 'grow hint' }, 'Tonmodell'),
+      reg(select([['print', 'Analoger Abzug (RA-4-Papier)'], ['digital', 'Digital (linear)']],
+        () => S()?.tone.model ?? 'print', (v) => { const s = S(); if (!s) return; s.tone.model = v; commit(); syncPanel(); changed(); },
+        { title: 'Analoger Abzug: Negativ wird wie im Vergrößerer auf Fotopapier belichtet (Papiergradation, Papierweiß/-schwarz, Papierfarbstoffe). Digital: lineare Umrechnung.' }))),
     el('div', { class: 'row' }, el('button', { class: 'btn small', type: 'button', onclick: doAutoExposure }, 'Auto-Belichtung')),
     bind('tone.exposure', { label: 'Belichtung', min: -3, max: 3, step: 0.05, unit: ' EV', digits: 2, track: TRACKS.exposure }),
-    bind('tone.contrast', { label: 'Kontrast', min: -100, max: 100, step: 1 }),
+    bind('tone.contrast', { label: 'Kontrast (Papiergradation)', min: -100, max: 100, step: 1, title: 'Im Abzugsmodell: weicheres oder härteres Papier' }),
     bind('tone.rolloff', { label: 'Lichter-Rolloff', min: 0, max: 100, step: 1, title: 'Wie weich die Lichter in Weiß auslaufen – höher = früherer, sanfterer Übergang (Laborscanner-Charakter), 0 = knapp und hell' }),
-    bind('tone.range', { label: 'Tonumfang (Papiergradation)', min: 4, max: 14, step: 0.1, unit: ' Bl.', title: 'Wie viele Blendenstufen der Negativumfang abbildet – höher = kräftiger' }),
+    bind('tone.range', { label: 'Tonumfang (Negativ)', min: 4, max: 14, step: 0.1, unit: ' Bl.', title: 'Wie viele Blendenstufen der Negativumfang abbildet – höher = kräftiger' }),
     bind('tone.highlights', { label: 'Lichter', min: -100, max: 100, step: 1 }),
     bind('tone.shadows', { label: 'Tiefen', min: -100, max: 100, step: 1 }),
     bind('tone.whites', { label: 'Weiß', min: -100, max: 100, step: 1 }),
@@ -643,6 +647,7 @@ function buildPanel() {
   sections.color = section('Farbe', true, [
     bind('color.vibrance', { label: 'Dynamik', min: -100, max: 100, step: 1, title: 'Hebt schwache Farben an, schont Hauttöne und gesättigte Farben' }),
     bind('color.saturation', { label: 'Sättigung', min: -100, max: 100, step: 1, track: TRACKS.sat }),
+    bind('color.paperDyes', { label: 'Papierfarbstoffe', min: 0, max: 100, step: 1, unit: ' %', title: 'Ungewollte Nebenabsorptionen der Cyan-, Magenta- und Gelbfarbstoffe des Fotopapiers – der typische, etwas gedämpftere Farbcharakter eines echten Abzugs (nur im Abzugsmodell)' }),
     el('p', { class: 'hint' }, 'Farben laufen weich gegen die Gamut-Grenze statt zu clippen – kräftig, aber nie grell.'),
   ], () => resetKeys('color'));
 
