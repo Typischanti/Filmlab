@@ -1,0 +1,13 @@
+{
+  "id": "neutral",
+  "name": "Neutral",
+  "description": "Natürliche Farben, ausgeglichener Weißabgleich, kontrollierter Kontrast. Alle Regler neutral, moderate Lichterschulter.",
+  "look": {
+    "contrast": 0,
+    "saturation": 0,
+    "vibrance": 0,
+    "highlight_rolloff": 0.5,
+    "temperature": 0,
+    "nr_chroma": 10
+  }
+}

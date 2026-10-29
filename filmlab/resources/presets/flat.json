@@ -1,0 +1,16 @@
+{
+  "id": "flat",
+  "name": "Flat",
+  "description": "Niedriger Kontrast, angehobene Schwärzen, maximal weiche Lichter: großer Spielraum für spätere Bearbeitung.",
+  "look": {
+    "contrast": -35,
+    "saturation": -15,
+    "vibrance": 0,
+    "highlight_rolloff": 0.9,
+    "highlights": -30,
+    "shadows": 25,
+    "black": -6,
+    "white": -4,
+    "nr_chroma": 10
+  }
+}

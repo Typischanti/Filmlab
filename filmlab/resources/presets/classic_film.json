@@ -1,0 +1,17 @@
+{
+  "id": "classic_film",
+  "name": "Classic Film",
+  "description": "Klassische analoge Wiedergabe: weiche Lichterschulter, leicht angehobene Schwärzen, leicht warm. Keine Rauschreduzierung und keine Schärfung, damit das natürliche Korn erhalten bleibt.",
+  "look": {
+    "contrast": 8,
+    "saturation": -5,
+    "vibrance": 0,
+    "highlight_rolloff": 0.85,
+    "black": -4,
+    "temperature": 6,
+    "shadows": 5,
+    "nr_luma": 0,
+    "nr_chroma": 0,
+    "sharpen_amount": 0
+  }
+}

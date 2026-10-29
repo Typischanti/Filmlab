@@ -1,0 +1,18 @@
+{
+  "id": "portrait",
+  "name": "Portrait",
+  "description": "Sanfter Kontrast, kontrollierte Sättigung (Hauttöne), leicht geöffnete Tiefen und geschützte Lichter, leichte Farbrauschreduzierung.",
+  "look": {
+    "contrast": -10,
+    "saturation": -8,
+    "vibrance": 5,
+    "highlight_rolloff": 0.7,
+    "temperature": 3,
+    "shadows": 10,
+    "highlights": -10,
+    "nr_luma": 10,
+    "nr_chroma": 25,
+    "sharpen_amount": 20,
+    "sharpen_radius": 1.2
+  }
+}

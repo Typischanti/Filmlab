@@ -1,0 +1,17 @@
+{
+  "id": "kodak_ektar_100",
+  "name": "Kodak Ektar 100",
+  "manufacturer": "Kodak",
+  "iso": 100,
+  "film_type": "color_negative",
+  "description": "Vom Hersteller als sehr feinkörnig mit hoher Sättigung beschrieben.",
+  "film": {
+    "film_gamma": 0.6
+  },
+  "look_delta": {
+    "saturation": 12,
+    "contrast": 6
+  },
+  "recommended_preset": "landscape",
+  "basis": "Ausgangswerte. film_gamma 0.60 ist ein typischer Wert für C-41-Negative (Größenordnung veröffentlichter Herstellerkurven), NICHT für diesen Film gemessen. look_delta spiegelt nur die allgemein vom Hersteller beschriebene Charakteristik wider und ist eine subjektive, dokumentierte Startempfehlung."
+}

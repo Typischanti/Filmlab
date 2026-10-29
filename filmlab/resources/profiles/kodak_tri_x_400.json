@@ -1,0 +1,16 @@
+{
+  "id": "kodak_tri_x_400",
+  "name": "Kodak Tri-X 400",
+  "manufacturer": "Kodak",
+  "iso": 400,
+  "film_type": "bw_negative",
+  "description": "Klassischer 400er; Startwert mit etwas höherem Kontrast.",
+  "film": {
+    "film_gamma": 0.6
+  },
+  "look_delta": {
+    "contrast": 8
+  },
+  "recommended_preset": "classic_film",
+  "basis": "Ausgangswerte. film_gamma 0.60 entspricht einer typischen Normalentwicklung (Kontrastindex ≈ 0.56–0.62); die tatsächliche Gradation hängt stark von Entwickler und Entwicklungszeit ab und ist nicht gemessen."
+}

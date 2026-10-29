@@ -1,0 +1,11 @@
+{
+  "id": "generic_slide",
+  "name": "Generisch Diafilm (E-6)",
+  "manufacturer": "",
+  "film_type": "slide",
+  "description": "Positiv-Workflow ohne Inversion.",
+  "film": {},
+  "look_delta": {},
+  "recommended_preset": "neutral",
+  "basis": "Ausgangswerte für Diafilm, keine Inversion."
+}

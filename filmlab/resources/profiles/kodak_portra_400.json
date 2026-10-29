@@ -1,0 +1,18 @@
+{
+  "id": "kodak_portra_400",
+  "name": "Kodak Portra 400",
+  "manufacturer": "Kodak",
+  "iso": 400,
+  "film_type": "color_negative",
+  "description": "Vom Hersteller für Porträts/Hauttöne und großen Belichtungsspielraum beschrieben.",
+  "film": {
+    "film_gamma": 0.6
+  },
+  "look_delta": {
+    "contrast": -5,
+    "saturation": -4,
+    "highlight_rolloff": 0.1
+  },
+  "recommended_preset": "portrait",
+  "basis": "Ausgangswerte. film_gamma 0.60 ist ein typischer Wert für C-41-Negative (Größenordnung veröffentlichter Herstellerkurven), NICHT für diesen Film gemessen. look_delta spiegelt nur die allgemein vom Hersteller beschriebene Charakteristik wider und ist eine subjektive, dokumentierte Startempfehlung."
+}

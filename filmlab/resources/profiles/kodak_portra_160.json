@@ -1,0 +1,17 @@
+{
+  "id": "kodak_portra_160",
+  "name": "Kodak Portra 160",
+  "manufacturer": "Kodak",
+  "iso": 160,
+  "film_type": "color_negative",
+  "description": "Vom Hersteller als feinkörnig mit natürlichen Hauttönen und moderatem Kontrast beschrieben.",
+  "film": {
+    "film_gamma": 0.6
+  },
+  "look_delta": {
+    "contrast": -6,
+    "saturation": -6
+  },
+  "recommended_preset": "portrait",
+  "basis": "Ausgangswerte. film_gamma 0.60 ist ein typischer Wert für C-41-Negative (Größenordnung veröffentlichter Herstellerkurven), NICHT für diesen Film gemessen. look_delta spiegelt nur die allgemein vom Hersteller beschriebene Charakteristik wider und ist eine subjektive, dokumentierte Startempfehlung."
+}

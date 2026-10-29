@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "filmlab"
+version = "0.1.0"
+description = "Professioneller Filmnegativ-Konverter (C-41, S/W, Dia) mit linearer Float-Pipeline"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "opencv-python-headless>=4.10",
+    "rawpy>=0.22",
+    "tifffile>=2024.8",
+    "imagecodecs>=2024.6",
+    "Pillow>=10.4",
+    "PySide6>=6.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+filmlab = "filmlab.app:main"
+filmlab-cli = "filmlab.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["filmlab*"]
+
+[tool.setuptools.package-data]
+filmlab = ["resources/profiles/*.json", "resources/presets/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
