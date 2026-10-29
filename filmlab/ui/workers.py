@@ -23,6 +23,7 @@ from ..imaging import pipeline
 from ..imaging.loader import SourceImage, load_image, make_proxy
 
 PREVIEW_DIM = 1800
+DRAFT_DIM = 900      # Entwurfsauflösung während Regler gezogen werden
 THUMB_DIM = 360
 
 
@@ -131,11 +132,16 @@ class LoadedImage:
     encoding: str
     warnings: list[str] = field(default_factory=list)
     meta: dict = field(default_factory=dict)
-    cache: pipeline.StageCache = field(default_factory=pipeline.StageCache)
+    cache: pipeline.StageCache = field(default_factory=lambda: pipeline.StageCache(capacity=4))
+    draft: np.ndarray | None = None
 
     @property
     def preview_scale(self) -> float:
         return self.preview.shape[1] / self.full_size[1]
+
+    def __post_init__(self):
+        if self.draft is None:
+            self.draft = np.ascontiguousarray(make_proxy(self.preview, DRAFT_DIM))
 
 
 def load_job(path: str, input_encoding: str, keep_full: bool = True) -> LoadedImage:
@@ -178,18 +184,22 @@ class PreviewResult:
     hist: np.ndarray
     clip: tuple[float, float]
     uncropped: bool
+    upscale: float = 1.0       # >1 bei Entwurfsauflösung (Anzeige wird hochskaliert)
 
 
-def preview_job(token: int, img: LoadedImage, settings: EditSettings, uncropped: bool) -> PreviewResult:
+def preview_job(token: int, img: LoadedImage, settings: EditSettings, uncropped: bool,
+                draft: bool = False) -> PreviewResult:
     s = pipeline.ensure_analysis(img.analysis_proxy, settings.copy(), img.source_id)
     view = s.copy()
     if uncropped:
         view.geometry.crop = None
-    out = pipeline.render(img.preview, view, scale=img.preview_scale, output_space="srgb",
+    src = img.draft if draft else img.preview
+    out = pipeline.render(src, view, scale=src.shape[1] / img.full_size[1], output_space="srgb",
                           cache=img.cache, cache_id=img.source_id)
-    before = pipeline.render_negative(img.preview, view)
+    before = pipeline.render_negative(src, view)
     hist, clip = histogram(out)
-    return PreviewResult(token, s.analysis, s.analysis.key, to_qimage(out), to_qimage(before), hist, clip, uncropped)
+    return PreviewResult(token, s.analysis, s.analysis.key, to_qimage(out), to_qimage(before), hist, clip, uncropped,
+                         img.preview.shape[1] / src.shape[1])
 
 
 def thumb_job(index: int, path: str, settings: EditSettings, thumb_proxy: np.ndarray | None = None

@@ -28,7 +28,10 @@ heuristisch und als solche gekennzeichnet.
 """
 from __future__ import annotations
 
+import cv2
 import numpy as np
+
+_LN10 = float(np.log(10.0))
 
 DENSITY_MAX = 4.0      # Begrenzung: mehr Dichte über Filmgrund kommt praktisch nicht vor
 MIN_RANGE = 0.05       # minimale Dichtespanne zwischen Schwarz- und Weißpunkt
@@ -39,10 +42,12 @@ def density(lin: np.ndarray, base) -> np.ndarray:
     """Optische Dichte über Filmgrund: D = -log10(S / B). Numerisch stabil durch
     Begrenzung der Transmission auf [10^-DENSITY_MAX, ∞).
     Werte heller als der Filmgrund ergeben (kleine) negative Dichten."""
-    base = np.asarray(base, dtype=np.float32)
-    t = lin / base
+    base = np.maximum(np.asarray(base, dtype=np.float32), np.float32(1e-6))
+    t = np.ascontiguousarray(lin, dtype=np.float32) / base
     np.maximum(t, np.float32(10.0 ** -DENSITY_MAX), out=t)
-    return -np.log10(t, dtype=np.float32)
+    d = (cv2.log(t) if t.ndim <= 3 and t.shape[-1] <= 4 else np.log(t)).reshape(t.shape)
+    d *= np.float32(-1.0 / _LN10)
+    return d
 
 
 def density_levels(d: np.ndarray, black_clip: float, white_clip: float) -> tuple[np.ndarray, np.ndarray]:
@@ -93,9 +98,12 @@ def to_scene_linear(e: np.ndarray, r: float, flare: float = 1.0) -> np.ndarray:
     L = 10^(R(e-1)); anschließend wird der Restschwarzwert 10^-R abgezogen
     (HEURISTIK, entspricht einer Streulicht-/Schwarzpunktkorrektur), sodass
     der Schwarzpunkt auf 0 und der Weißpunkt auf 1 fällt."""
-    lin = np.power(np.float32(10.0), np.float32(r) * (e - np.float32(1.0)))
-    floor = flare * 10.0 ** (-r)
-    return ((lin - floor) / (1.0 - floor)).astype(np.float32)
+    x = np.ascontiguousarray((e - np.float32(1.0)) * np.float32(r * _LN10), dtype=np.float32)
+    lin = (cv2.exp(x) if x.ndim <= 3 and x.shape[-1] <= 4 else np.exp(x)).reshape(x.shape)
+    floor = np.float32(flare * 10.0 ** (-r))
+    lin -= floor
+    lin *= np.float32(1.0 / (1.0 - floor))
+    return lin
 
 
 def slide_levels(lum: np.ndarray, black_clip: float, white_clip: float) -> tuple[float, float]:

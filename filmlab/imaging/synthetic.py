@@ -100,3 +100,35 @@ def make_negative(h: int = 400, w: int = 600, border: float = 0.07, film: FilmMo
     full_scene[frame[1]:frame[3], frame[0]:frame[2]] = sc
     base_rgb = k * 10.0 ** (-(np.asarray(film.d_min) + film.fog))
     return SyntheticNegative(neg, full_scene, frame, base_rgb, film, scan)
+
+
+def write_dng(path, linear_rgb: np.ndarray, black: int = 512, white: int = 16383) -> None:
+    """Schreibt ein lineares RGB-Bild als Bayer-DNG (RGGB) zum Testen des
+    RAW-Pfads (LibRaw). Kamerafarbraum = lineares sRGB (ColorMatrix1 = XYZ->sRGB)."""
+    import tifffile
+
+    h, w = linear_rgb.shape[:2]
+    h, w = h - h % 2, w - w % 2
+    lin = np.clip(linear_rgb[:h, :w], 0.0, 1.0)
+    cfa = np.empty((h, w), np.float64)
+    cfa[0::2, 0::2] = lin[0::2, 0::2, 0]
+    cfa[0::2, 1::2] = lin[0::2, 1::2, 1]
+    cfa[1::2, 0::2] = lin[1::2, 0::2, 1]
+    cfa[1::2, 1::2] = lin[1::2, 1::2, 2]
+    raw = np.round(black + cfa * (white - black)).astype(np.uint16)
+    xyz_to_srgb = np.array([[3.2406, -1.5372, -0.4986], [-0.9689, 1.8758, 0.0415], [0.0557, -0.2040, 1.0570]])
+    cm: list[int] = []
+    for v in xyz_to_srgb.ravel():
+        cm += [int(round(v * 10000)), 10000]
+    extratags = [
+        (50706, "B", 4, (1, 4, 0, 0), True),          # DNGVersion
+        (50708, "s", 0, "FilmLab Synthetic", True),    # UniqueCameraModel
+        (33421, "H", 2, (2, 2), True),                 # CFARepeatPatternDim
+        (33422, "B", 4, (0, 1, 1, 2), True),           # CFAPattern RGGB
+        (50714, "H", 1, black, True),                  # BlackLevel
+        (50717, "H", 1, white, True),                  # WhiteLevel
+        (50721, "2i", 9, cm, True),                    # ColorMatrix1
+        (50778, "H", 1, 21, True),                     # CalibrationIlluminant1 = D65
+        (50728, "2I", 3, [1, 1, 1, 1, 1, 1], True),    # AsShotNeutral
+    ]
+    tifffile.imwrite(str(path), raw, photometric=32803, subfiletype=0, extratags=extratags, metadata=None)

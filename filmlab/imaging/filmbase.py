@@ -65,6 +65,23 @@ def image_region(img: np.ndarray, crop: list[float] | None, margin: float = 0.08
     return do_crop(img, rect)
 
 
+def _edge_coverage(block_idx: np.ndarray, bh: int, bw: int, crop: list[float] | None) -> float:
+    """Größter Anteil einer Bildkante (bzw. Zuschnittkante), der von den
+    Blöcken eines Kandidaten-Clusters im angrenzenden Randstreifen belegt ist."""
+    by, bx = np.divmod(block_idx, bw)
+    if crop and (crop[2] - crop[0]) * (crop[3] - crop[1]) < 0.95:
+        x0, y0, x1, y1 = crop[0] * bw, crop[1] * bh, crop[2] * bw, crop[3] * bh
+        strips = [(by < y0, bx, bw), (by > y1, bx, bw), (bx < x0, by, bh), (bx > x1, by, bh)]
+    else:
+        sy, sx = max(1, int(np.ceil(bh * 0.12))), max(1, int(np.ceil(bw * 0.12)))
+        strips = [(by < sy, bx, bw), (by >= bh - sy, bx, bw), (bx < sx, by, bh), (bx >= bw - sx, by, bh)]
+    best = 0.0
+    for mask, pos, length in strips:
+        if np.any(mask):
+            best = max(best, np.unique(pos[mask]).size / length)
+    return best
+
+
 def is_orange(rgb) -> bool:
     r, g, b = rgb
     return r > g * 1.08 and g > b * 1.08
@@ -170,7 +187,7 @@ def estimate_from_content(img: np.ndarray, crop: list[float] | None, film_type: 
     blurred = cv2.GaussianBlur(region.astype(np.float32), (0, 0), 2.0)
     flat = blurred.reshape(-1, 3)
     rgb = np.percentile(flat, 99.8, axis=0) * 1.02
-    rgb = np.minimum(rgb, 1.0)
+    rgb = np.clip(rgb, 1e-4, 1.0)
     return BaseResult(
         [float(v) for v in rgb], "estimate", 0.25, None,
         ["Kein unbelichteter Filmrand verfügbar – Filmgrund wurde aus dem Bildinhalt geschätzt. "
@@ -242,6 +259,13 @@ def detect_base(img: np.ndarray, film_type: str = "color_negative", crop: list[f
             notes.append("Deutlich hellerer Bereich als Durchlicht (Perforation/Lücke) verworfen.")
             chosen = alt
             break
+
+    # Ein echter Filmrand verläuft durchgehend entlang einer Bildkante;
+    # einzelne gleichmäßige (dunkle) Motivflächen am Rand tun das nicht.
+    if _edge_coverage(idx[chosen["members"]], bh, bw, crop) < 0.35:
+        res = estimate_from_content(img, crop, film_type)
+        res.warnings.insert(0, "Kein durchgehender Filmrand gefunden.")
+        return res
 
     if not chosen["covers"]:
         res = estimate_from_content(img, crop, film_type)

@@ -39,11 +39,17 @@ class ImageViewer(QWidget):
         self._space = False
 
     # ------------------------------------------------------------------
-    def set_images(self, after: QImage | None, before: QImage | None = None, reset_view: bool = False):
-        old = self._after.size() if self._after else None
+    def set_images(self, after: QImage | None, before: QImage | None = None, reset_view: bool = False,
+                   upscale: float = 1.0):
+        """``upscale`` > 1: Entwurfsbild geringerer Auflösung, das in der
+        logischen Größe des vollen Vorschaubilds dargestellt wird."""
+        old = self._img_size() if self._after else None
         self._after = QPixmap.fromImage(after) if after is not None else None
         self._before = QPixmap.fromImage(before) if before is not None else None
-        if reset_view or old is None or (self._after and old != self._after.size()):
+        pm = self._after or self._before
+        self._logical = (pm.width() * upscale, pm.height() * upscale) if pm else None
+        new = self._img_size()
+        if reset_view or old is None or (abs(old[0] - new[0]) > 2 or abs(old[1] - new[1]) > 2):
             self.fit_mode = True
         if self.fit_mode:
             self.fit()
@@ -69,6 +75,8 @@ class ImageViewer(QWidget):
 
     # ------------------------------------------------------------------
     def _img_size(self):
+        if getattr(self, "_logical", None):
+            return self._logical
         pm = self._after or self._before
         return (pm.width(), pm.height()) if pm else (1, 1)
 
@@ -128,7 +136,8 @@ class ImageViewer(QWidget):
         p.setRenderHint(QPainter.SmoothPixmapTransform, self.scale < 2.0)
         w, h = self._img_size()
         target = QRectF(self.offset.x(), self.offset.y(), w * self.scale, h * self.scale)
-        src = QRectF(0, 0, w, h)
+        pm = self._after or self._before
+        src = QRectF(0, 0, pm.width(), pm.height())
         if self.mode == "before" and self._before:
             p.drawPixmap(target, self._before, src)
         elif self.mode == "split" and self._before and self._after:

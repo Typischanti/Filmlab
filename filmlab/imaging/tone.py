@@ -13,6 +13,7 @@ import numpy as np
 
 from ..core.colorspace import luminance_weights
 from ..core.settings import EditSettings
+from . import fastops
 
 PERC_GAMMA = 2.2
 LUT_SIZE = 8192
@@ -22,11 +23,11 @@ W_REC2020 = luminance_weights()
 
 
 def to_perceptual(lin: np.ndarray) -> np.ndarray:
-    return np.power(np.maximum(lin, 0.0), np.float32(1.0 / PERC_GAMMA))
+    return fastops.power(lin, 1.0 / PERC_GAMMA)
 
 
 def from_perceptual(q: np.ndarray) -> np.ndarray:
-    return np.power(np.maximum(q, 0.0), np.float32(PERC_GAMMA))
+    return fastops.power(q, PERC_GAMMA)
 
 
 # ---------------------------------------------------------------------------
@@ -155,18 +156,40 @@ def build_tone_lut(s: EditSettings) -> tuple[np.ndarray, np.ndarray]:
     return x.astype(np.float32), np.stack(luts).astype(np.float32)
 
 
+SQRT_LUT_SIZE = 16384
+SQRT_MAX = float(np.sqrt(LUT_MAX ** PERC_GAMMA))   # sqrt(L) bei q = LUT_MAX
+
+
+def build_sqrt_tone_lut(s: EditSettings) -> np.ndarray:
+    """Tonwert-LUT, indiziert über sqrt(L) statt q = L^(1/2.2).
+
+    q = (sqrt L)^(2/2.2) ist im sqrt-Bereich nahezu linear, daher ist die
+    lineare Interpolation sehr genau, und das teure pow() pro Pixel entfällt
+    (sqrt ist eine einfache SIMD-Operation). Ergebnis: (3, SQRT_LUT_SIZE)."""
+    xs = np.linspace(0.0, SQRT_MAX, SQRT_LUT_SIZE, dtype=np.float64)
+    q_in = np.power(xs, 2.0 / PERC_GAMMA)
+    q = base_tone(q_in, s)
+    if not _is_identity(s.curves.get("master", [[0, 0], [1, 1]])):
+        q = monotone_curve(s.curves["master"], q)
+    luts = []
+    for ch in ("r", "g", "b"):
+        pts = s.curves.get(ch, [[0, 0], [1, 1]])
+        qc = q if _is_identity(pts) else monotone_curve(pts, q)
+        luts.append(np.maximum.accumulate(np.clip(qc, 0.0, 1.0)))
+    return np.stack(luts).astype(np.float32)
+
+
+Q_TO_LIN_LUT = np.power(np.linspace(0.0, 1.0, 4096), PERC_GAMMA).astype(np.float32)[None, :]
+
+
+def linear_gains(s: EditSettings, mono: bool = False) -> np.ndarray:
+    gain = 2.0 ** s.exposure
+    return (np.full(3, gain, np.float32) if mono else white_balance_gains(s) * np.float32(gain)).astype(np.float32)
+
+
 def apply_lut(q: np.ndarray, x: np.ndarray, lut: np.ndarray) -> np.ndarray:
-    out = np.empty_like(q, dtype=np.float32)
-    # gleichmäßiges Raster -> schnelle lineare Interpolation über Indexrechnung
-    n = x.size
-    scale = np.float32((n - 1) / LUT_MAX)
-    for c in range(q.shape[-1]):
-        pos = np.clip(q[..., c] * scale, 0.0, n - 1.000001)
-        i = pos.astype(np.int32)
-        f = pos - i
-        l = lut[c]
-        out[..., c] = l[i] * (1.0 - f) + l[i + 1] * f
-    return out
+    """Kanalweise lineare Interpolation der Tonwert-LUT (gleichmäßiges Raster)."""
+    return fastops.lut3(q, lut, LUT_MAX)
 
 
 # ---------------------------------------------------------------------------
@@ -178,11 +201,13 @@ def apply_color(q: np.ndarray, s: EditSettings) -> np.ndarray:
     vib = s.vibrance / 100.0
     if abs(sat - 1.0) < 1e-6 and abs(vib) < 1e-6:
         return q
-    y = (q @ W_REC2020)[..., None]
-    d = q - y
+    y = fastops.transform(q, W_REC2020)[..., None]
     if abs(vib) > 1e-6:
-        chroma = np.clip(q.max(axis=-1) - q.min(axis=-1), 0.0, 1.0)[..., None]
-        factor = sat * (1.0 + vib * (1.0 - chroma) ** 2)
+        chroma = np.clip(fastops.cmax(q) - fastops.cmin(q), 0.0, 1.0)[..., None]
+        factor = np.float32(sat) * (np.float32(1.0) + np.float32(vib) * (np.float32(1.0) - chroma) ** 2)
     else:
-        factor = sat
-    return (y + d * factor).astype(np.float32)
+        factor = np.float32(sat)
+    out = q - y
+    out *= factor
+    out += y
+    return out

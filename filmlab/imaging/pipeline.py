@@ -21,11 +21,12 @@ import json
 import threading
 from dataclasses import asdict
 
+import cv2
 import numpy as np
 
 from ..core import colorspace as cs
 from ..core.settings import Analysis, EditSettings
-from . import detail, filmbase, inversion, tone
+from . import detail, fastops, filmbase, inversion, tone
 from .geometry import apply_geometry, crop, inset, orient
 from .loader import make_proxy
 
@@ -157,19 +158,61 @@ def scene_linear(img: np.ndarray, s: EditSettings, a: Analysis) -> np.ndarray:
     return inversion.to_scene_linear(e, a.log_range)
 
 
-def finish(lin: np.ndarray, s: EditSettings, scale: float = 1.0, output_space: str = "srgb") -> np.ndarray:
-    """Szenenlinear -> kodiertes Ausgabebild (float32, 0..1)."""
+def finish(lin: np.ndarray, s: EditSettings, scale: float = 1.0, output_space: str = "srgb",
+           sqrt_lin: np.ndarray | None = None) -> np.ndarray:
+    """Szenenlinear -> kodiertes Ausgabebild (float32, 0..1).
+
+    Schneller Pfad: Belichtung/Weißabgleich werden als Skalierung des LUT-
+    Index angewendet (sqrt(g*L) = sqrt(g)*sqrt(L)), Transferfunktionen als
+    vorberechnete Float-LUTs. Numerisch gleichwertig zu ``finish_reference``
+    (Abweichung < 1e-4, siehe Tests)."""
     mono = s.film_type == "bw_negative"
-    lin = tone.apply_linear(lin, s, mono=mono)
-    q = tone.to_perceptual(lin)
-    x, lut = tone.build_tone_lut(s)
-    q = tone.apply_lut(q, x, lut)
+    if sqrt_lin is None:
+        sqrt_lin = cv2.sqrt(np.maximum(fastops.f32(lin), np.float32(0.0)))
+    luts = tone.build_sqrt_tone_lut(s)
+    q = fastops.lut_channels(sqrt_lin, luts, tone.SQRT_MAX, prescale=np.sqrt(tone.linear_gains(s, mono)))
     q = detail.reduce_noise(q, s.nr_luma, s.nr_chroma, scale, mono=mono)
     q = detail.sharpen(q, s.sharpen_amount, s.sharpen_radius, scale)
     if not mono:
         q = tone.apply_color(q, s)
-    out_lin = tone.from_perceptual(np.clip(q, 0.0, 1.0))
+    out_lin = fastops.lut_channels(q, tone.Q_TO_LIN_LUT, 1.0)   # q^2.2, mit Klemmung auf [0, 1]
     return to_output(out_lin, output_space)
+
+
+def finish_reference(lin: np.ndarray, s: EditSettings, scale: float = 1.0, output_space: str = "srgb") -> np.ndarray:
+    """Direkte (langsame) Referenzimplementierung von ``finish`` mit pow()
+    und exakten Transferfunktionen – dient der Verifikation des schnellen Pfads."""
+    mono = s.film_type == "bw_negative"
+    lin = tone.apply_linear(lin, s, mono=mono)
+    q = np.power(np.maximum(lin, 0.0).astype(np.float64), 1.0 / tone.PERC_GAMMA)
+    q = tone.base_tone(np.minimum(q, tone.LUT_MAX), s)          # pixelweise, ohne LUT
+    if not tone._is_identity(s.curves["master"]):
+        q = tone.monotone_curve(s.curves["master"], q)
+    q = np.stack([q[..., c] if tone._is_identity(s.curves[ch]) else tone.monotone_curve(s.curves[ch], q[..., c])
+                  for c, ch in enumerate("rgb")], axis=-1)
+    q = np.clip(q, 0.0, 1.0).astype(np.float32)
+    q = detail.reduce_noise(q, s.nr_luma, s.nr_chroma, scale, mono=mono)
+    q = detail.sharpen(q, s.sharpen_amount, s.sharpen_radius, scale)
+    if not mono:
+        q = tone.apply_color(q, s)
+    out_lin = np.power(np.clip(q, 0.0, 1.0), tone.PERC_GAMMA).astype(np.float32)
+    space = cs.SPACES[output_space]
+    out = cs.apply_matrix(out_lin, cs.conversion_matrix(cs.WORKING_SPACE, space))
+    out = cs.gamut_compress(out, cs.luminance_weights(space))
+    return np.clip(cs.encode(np.clip(out, 0.0, 1.0), space), 0.0, 1.0)
+
+
+_ENCODE_LUTS: dict[str, np.ndarray] = {}
+
+
+def _encode_lut(space: cs.RGBColorSpace) -> np.ndarray:
+    """Kodierungs-LUT über sqrt(linear) (glatt, daher genau interpolierbar)."""
+    lut = _ENCODE_LUTS.get(space.key)
+    if lut is None:
+        xs = np.linspace(0.0, 1.0, 16384, dtype=np.float64)
+        lut = cs.encode((xs * xs).astype(np.float32), space).astype(np.float32)[None, :]
+        _ENCODE_LUTS[space.key] = lut
+    return lut
 
 
 def to_output(lin_working: np.ndarray, output_space: str) -> np.ndarray:
@@ -178,21 +221,25 @@ def to_output(lin_working: np.ndarray, output_space: str) -> np.ndarray:
     out = cs.apply_matrix(lin_working, m)
     out = cs.gamut_compress(out, cs.luminance_weights(space))
     np.clip(out, 0.0, 1.0, out=out)
-    return np.clip(cs.encode(out, space), 0.0, 1.0)
+    if space.transfer == "linear":
+        return out
+    return np.clip(fastops.lut_channels(cv2.sqrt(out), _encode_lut(space), 1.0), 0.0, 1.0)
 
 
 def render(img: np.ndarray, s: EditSettings, scale: float = 1.0, output_space: str = "srgb",
            cache: "StageCache | None" = None, cache_id: str = "") -> np.ndarray:
-    lin = None
+    sq = None
     key = None
     if cache is not None:
         key = cache.key(cache_id, img.shape, s)
-        lin = cache.get(key)
-    if lin is None:
+        sq = cache.get(key)
+    if sq is None:
         lin = scene_linear(apply_geometry(img, s.geometry), s, s.analysis)
+        sq = cv2.sqrt(np.maximum(lin, np.float32(0.0)))
+        del lin
         if cache is not None:
-            cache.put(key, lin)
-    return finish(lin, s, scale, output_space)
+            cache.put(key, sq)
+    return finish(None, s, scale, output_space, sqrt_lin=sq)
 
 
 def render_negative(img: np.ndarray, s: EditSettings, with_crop: bool = True) -> np.ndarray:
@@ -202,7 +249,7 @@ def render_negative(img: np.ndarray, s: EditSettings, with_crop: bool = True) ->
 
 
 class StageCache:
-    """Zwischenspeicher für das szenenlineare Bild (teuerste Stufe). Bei
+    """Zwischenspeicher für sqrt(szenenlinear) (teuerste Stufe). Bei
     reinen Tonwert-/Farbänderungen entfällt so die Dichteberechnung."""
 
     def __init__(self, capacity: int = 2):

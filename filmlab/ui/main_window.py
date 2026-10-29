@@ -71,6 +71,8 @@ class MainWindow(QMainWindow):
 
         self._autosave = QTimer(self, singleShot=True, interval=1200, timeout=self._do_autosave)
         self._thumb_timer = QTimer(self, singleShot=True, interval=900, timeout=self._refresh_dirty_thumbs)
+        # nach Entwurfs-Renderings (Regler wird gezogen) volle Vorschau nachreichen
+        self._refine_timer = QTimer(self, singleShot=True, interval=220, timeout=self.request_preview)
 
         self._build_ui()
         self._build_menu()
@@ -327,12 +329,16 @@ class MainWindow(QMainWindow):
         self.request_preview()
 
     # ------------------------------------------------------------ Vorschau
-    def request_preview(self):
+    def request_preview(self, draft: bool = False):
         if self.loaded is None or self.cur is None:
             return
         self._token += 1
         uncropped = self.tool in (TOOL_CROP, TOOL_BASE)
-        self.preview_runner.request(workers.preview_job, self._token, self.loaded, self.cur.copy(), uncropped)
+        if draft:
+            self._refine_timer.start()
+        else:
+            self._refine_timer.stop()
+        self.preview_runner.request(workers.preview_job, self._token, self.loaded, self.cur.copy(), uncropped, draft)
 
     def _on_preview(self, res: workers.PreviewResult):
         s = self.cur
@@ -348,7 +354,7 @@ class MainWindow(QMainWindow):
         after = res.after
         if self.tool == TOOL_BASE:
             after = res.before   # Filmgrund wird auf dem Negativ gewählt
-        self.viewer.set_images(after, before, reset_view=reset)
+        self.viewer.set_images(after, before, reset_view=reset, upscale=res.upscale)
         self.right.histogram.set_data(res.hist, res.clip)
         self._update_base_info()
         self._update_overlays()
@@ -402,7 +408,9 @@ class MainWindow(QMainWindow):
 
     def _after_change(self, rethumb: bool = True):
         self._update_undo()
-        self.request_preview()
+        # Während mit der Maus gezogen wird (Regler, Kurve): schnelle Entwurfsvorschau
+        dragging = bool(QApplication.mouseButtons() & Qt.LeftButton)
+        self.request_preview(draft=dragging)
         self._schedule_autosave()
         if rethumb and 0 <= self.cur_index < len(self.runtime):
             self.runtime[self.cur_index].thumb_dirty = True

@@ -9,6 +9,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from . import fastops
 from .tone import W_REC2020
 
 
@@ -21,7 +22,7 @@ def _blur(img: np.ndarray, sigma: float) -> np.ndarray:
 def reduce_noise(q: np.ndarray, luma: float, chroma: float, scale: float, mono: bool = False) -> np.ndarray:
     if luma <= 0 and (chroma <= 0 or mono):
         return q
-    y = q @ W_REC2020
+    y = fastops.transform(q, W_REC2020)
     out = q
     if chroma > 0 and not mono:
         c = (q - y[..., None]).astype(np.float32)
@@ -44,6 +45,6 @@ def sharpen(q: np.ndarray, amount: float, radius: float, scale: float) -> np.nda
     sigma = radius * scale
     if sigma < 0.2:
         return q
-    y = np.ascontiguousarray(q @ W_REC2020, dtype=np.float32)
+    y = fastops.transform(q, W_REC2020)
     detail = y - _blur(y, sigma)
     return (q + (amount / 100.0) * detail[..., None]).astype(np.float32)

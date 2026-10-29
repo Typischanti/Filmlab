@@ -104,10 +104,24 @@ def conversion_matrix(src: RGBColorSpace | str, dst: RGBColorSpace | str) -> np.
 
 def apply_matrix(img: np.ndarray, m: np.ndarray) -> np.ndarray:
     """Wendet eine 3x3-Matrix auf ein HxWx3-Bild an (float32)."""
+    img = np.ascontiguousarray(img, dtype=np.float32)
     if np.allclose(m, np.eye(3), atol=1e-9):
-        return img.astype(np.float32, copy=False)
+        return img
+    if img.ndim == 3 and img.shape[-1] == 3:
+        import cv2
+
+        return cv2.transform(img, np.asarray(m, dtype=np.float32))
     out = img.reshape(-1, 3) @ m.T.astype(np.float32)
     return out.reshape(img.shape).astype(np.float32, copy=False)
+
+
+def _pow(x: np.ndarray, p: float) -> np.ndarray:
+    import cv2
+
+    x = np.ascontiguousarray(np.maximum(x, np.float32(0.0)), dtype=np.float32)
+    if x.ndim <= 3 and (x.ndim < 3 or x.shape[-1] <= 4) and x.size:
+        return cv2.pow(x, float(p))
+    return np.power(x, np.float32(p))
 
 
 def luminance_weights(space: RGBColorSpace | str = WORKING_SPACE) -> np.ndarray:
@@ -127,7 +141,7 @@ def encode(lin: np.ndarray, space: RGBColorSpace | str) -> np.ndarray:
         return x.copy()
     if t == "srgb":
         return np.where(x <= 0.0031308, 12.92 * x,
-                        1.055 * np.power(np.maximum(x, 0.0031308), 1 / 2.4) - 0.055).astype(np.float32)
+                        1.055 * _pow(np.maximum(x, 0.0031308), 1 / 2.4) - 0.055).astype(np.float32)
     if t == "gamma":
         return (np.sign(x) * np.power(np.abs(x), 1.0 / space.gamma)).astype(np.float32)
     if t == "romm":
@@ -162,14 +176,26 @@ def decode(enc: np.ndarray, space: RGBColorSpace | str) -> np.ndarray:
 def gamut_compress(lin: np.ndarray, weights: np.ndarray) -> np.ndarray:
     """Bringt negative Komponenten (außerhalb des Zielgamuts) durch Entsättigung
     in Richtung Luminanz zurück, statt hart zu clippen. Luminanz bleibt erhalten."""
-    mn = lin.min(axis=-1)
-    mask = mn < 0
-    if not np.any(mask):
+    mn = np.minimum(np.minimum(lin[..., 0], lin[..., 1]), lin[..., 2])
+    neg = mn < 0
+    if lin.ndim != 3:
+        neg_rows = slice(None) if neg.any() else None
+    else:
+        idx = np.flatnonzero(neg.any(axis=1))
+        neg_rows = idx if idx.size else None
+    if neg_rows is None:
         return lin
+    import cv2
+
     out = lin.copy()
-    px = out[mask]
-    y = np.maximum(px @ weights, 0.0)[:, None]
-    m = px.min(axis=-1, keepdims=True)
-    t = np.where(y - m > 1e-12, y / np.maximum(y - m, 1e-12), 0.0)
-    out[mask] = y + t * (px - y)
+    sub = np.ascontiguousarray(out[neg_rows], dtype=np.float32)   # nur betroffene Zeilen
+    m = mn[neg_rows][..., None]
+    y = cv2.transform(sub, np.asarray(weights, dtype=np.float32)[None, :]).reshape(m.shape)
+    np.maximum(y, 0.0, out=y)
+    # t = 1 im Gamut, sonst y / (y - min): Entsättigung genau bis min = 0
+    t = np.where(m < 0, y / np.maximum(y - m, np.float32(1e-12)), np.float32(1.0)).astype(np.float32)
+    sub -= y
+    sub *= t
+    sub += y
+    out[neg_rows] = sub
     return out
