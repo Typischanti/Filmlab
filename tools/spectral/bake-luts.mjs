@@ -30,7 +30,7 @@ export const STOCK_CONFIG = [
   { stock: 'kodak_portra_400', print: 'kodak_portra_endura', dir: 0.22 },
   { stock: 'kodak_portra_800', print: 'kodak_supra_endura', dir: 0.3 },
   { stock: 'kodak_ektar_100', print: 'kodak_ultra_endura', dir: 0.42 },
-  { stock: 'kodak_gold_200', print: 'kodak_endura_premier', dir: 0.32 },
+  { stock: 'kodak_gold_200', print: 'kodak_supra_endura', dir: 0.45, balanceCCT: 8000 },
   { stock: 'kodak_ultramax_400', print: 'kodak_ektacolor_edge', dir: 0.38 },
   { stock: 'fujifilm_pro_400h', print: 'fujifilm_crystal_archive_typeii', dir: 0.18 },
   { stock: 'fujifilm_c200', print: 'fujifilm_crystal_archive_typeii', dir: 0.3 },
