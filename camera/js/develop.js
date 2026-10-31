@@ -1,6 +1,6 @@
 // Entwickeln in voller Auflösung, Datumsstempel, Filmrahmen, Dateien.
 
-import { cropRect, fitArea, dateStampText, MAX_CANVAS_AREA } from './model.js';
+import { cropRect, fitArea, dateStampText, rng, MAX_CANVAS_AREA } from './model.js';
 import { getFilm } from './films.js';
 
 export const MAX_SOURCE_AREA = 12_600_000;
@@ -97,13 +97,17 @@ export async function exifDate(file) {
 // Rahmenmaße in Millimetern (Kleinbild, 35 mm breit, Bildbreite 36 mm).
 const FILM_W = 35;
 const FRAME_LEN = 36;
-const SIDE_GAP = 2.6;
+const GATE_H = 24;
+const SIDE_GAP = 2.2;
 
 export function frameLayout(imgW, imgH) {
   const landscape = imgW >= imgH;
   const long = landscape ? imgW : imgH;
-  const mm = long / FRAME_LEN;
-  const L = Math.round((FRAME_LEN + 2 * SIDE_GAP) * mm);
+  const short = landscape ? imgH : imgW;
+  // Die kurze Bildseite füllt immer das 24-mm-Fenster; breitere Formate
+  // werden länger (wie bei Panoramakameras auf Kleinbild, z. B. 24 × 65 mm).
+  const mm = Math.min(short / GATE_H, long / FRAME_LEN);
+  const L = Math.round(long + 2 * SIDE_GAP * mm);
   const S = Math.round(FILM_W * mm);
   return landscape
     ? { w: L, h: S, ix: Math.round((L - imgW) / 2), iy: Math.round((S - imgH) / 2), mm, landscape }
@@ -136,8 +140,7 @@ export function developToCanvas(renderer, srcW, srcH, settings, opts = {}) {
     canvas.width = L.w;
     canvas.height = L.h;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#0d0a08';
-    ctx.fillRect(0, 0, L.w, L.h);
+    drawRebate(ctx, L, w, h, settings);
     ix = L.ix;
     iy = L.iy;
     ctx.putImageData(img, ix, iy);
@@ -162,90 +165,278 @@ export async function develop(renderer, srcW, srcH, settings, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Filmrahmen: Kleinbildstreifen mit Perforation und Randbeschriftung.
-// Gezeichnet in Streifenkoordinaten (Streifen waagerecht, x entlang des
-// Films); bei Hochformat wird das Koordinatensystem gedreht.
+// Filmrahmen: gescannter Kleinbildstreifen (Positiv).
+//
+// Geometrie nach Kleinbildnorm (mm): Filmbreite 35, Bildfenster 36 × 24,
+// KS-Perforation 2,79 × 1,98 mm mit 0,5 mm Eckradius, Teilung 4,75 mm
+// (8 Löcher je Bild), Löcher dicht neben dem Bildfenster, Randbeschriftung
+// außen zwischen Perforation und Filmkante.
+//
+// Aussehen je Filmtyp:
+//  Negativ (C-41/ECN-2): Der unbelichtete Filmgrund wird im Positiv fast
+//    schwarz, die Löcher (volles Scannerlicht) noch dunkler. Die vorbelichtete
+//    Randbeschriftung erscheint hell orange.
+//  Dia (E-6): Unbelichteter Umkehrfilm ist maximal dicht (tiefschwarz), durch
+//    die Löcher scheint das Licht des Leuchtpults.
+// Gezeichnet in Streifenkoordinaten (x entlang des Films, y quer); bei
+// Hochformat wird das Koordinatensystem gedreht.
 
-function drawFrame(ctx, L, imgW, imgH, settings, frameNo) {
-  const film = getFilm(settings.film);
+const STRIP = {
+  width: 35,
+  gate: 24,
+  perfW: 2.794,
+  perfH: 1.981,
+  perfR: 0.5,
+  pitch: 4.75,
+  margin: 2.55, // Filmkante -> Perforation (Platz für die Randbeschriftung)
+};
+
+function frameStyle(film) {
+  if (film.type === 'slide') {
+    return { base: [7, 6, 9], holes: 'light', text: '#f3e6bd', glow: 'rgba(255,236,190,0.45)', fog: 'rgba(70,45,30,0.0)', dust: false };
+  }
+  if (film.process === 'ECN-2') {
+    return { base: [13, 12, 12], holes: 'dark', text: '#f4ad45', glow: 'rgba(255,150,50,0.5)', fog: 'rgba(110,60,30,0.16)', dust: true, cine: true };
+  }
+  return { base: [20, 15, 12], holes: 'dark', text: '#f3a53c', glow: 'rgba(255,140,40,0.5)', fog: 'rgba(120,65,28,0.2)', dust: true };
+}
+
+function stripGeometry(L, imgW, imgH) {
   const mm = L.mm;
   const SL = L.landscape ? L.w : L.h; // Länge entlang des Films
   const SW = L.landscape ? L.h : L.w; // Filmbreite
   const iL = L.landscape ? imgW : imgH;
   const iS = L.landscape ? imgH : imgW;
-  const i0 = (SL - iL) / 2;
-  const j0 = (SW - iS) / 2;
+  return { mm, SL, SW, iL, iS, i0: (SL - iL) / 2, j0: (SW - iS) / 2 };
+}
 
-  ctx.save();
+function toStripCoords(ctx, L) {
   if (!L.landscape) {
     // Streifen läuft senkrecht: Streifen-x zeigt nach oben
     ctx.translate(0, L.h);
     ctx.rotate(-Math.PI / 2);
   }
+}
 
-  // Bildfenster leicht abgerundet und mit weicher Kante
-  ctx.strokeStyle = 'rgba(13,10,8,0.85)';
-  ctx.lineWidth = Math.max(1, mm * 0.18);
-  roundRect(ctx, i0, j0, iL, iS, mm * 0.35);
-  ctx.stroke();
-
-  // Perforation: 8 Löcher je 36-mm-Bild, Teilung 4,75 mm
-  const pitch = 4.75 * mm;
-  const hw = 2.79 * mm, hh = 1.98 * mm;
-  const edge = 1.0 * mm;
-  ctx.fillStyle = 'rgba(238,228,212,0.94)';
-  ctx.shadowColor = 'rgba(255,220,180,0.35)';
-  ctx.shadowBlur = mm * 0.6;
-  const start = (SL / 2) % pitch - pitch;
-  for (let x = start; x < SL + pitch; x += pitch) {
-    roundRect(ctx, x - hw / 2, edge, hw, hh, mm * 0.45);
-    ctx.fill();
-    roundRect(ctx, x - hw / 2, SW - edge - hh, hw, hh, mm * 0.45);
-    ctx.fill();
+let grainTile = null;
+function rebateGrain(ctx) {
+  if (!grainTile) {
+    grainTile = document.createElement('canvas');
+    grainTile.width = grainTile.height = 128;
+    const g = grainTile.getContext('2d');
+    const id = g.createImageData(128, 128);
+    const r = rng(9001);
+    for (let i = 0; i < id.data.length; i += 4) {
+      const v = Math.pow(r(), 2.2) * 255;
+      id.data[i] = v;
+      id.data[i + 1] = v * 0.92;
+      id.data[i + 2] = v * 0.85;
+      id.data[i + 3] = 255;
+    }
+    g.putImageData(id, 0, 0);
   }
-  ctx.shadowBlur = 0;
+  return ctx.createPattern(grainTile, 'repeat');
+}
 
-  // Randbeschriftung (belichtet, erscheint im Positiv orange-gelb)
-  const textCol = '#f2a23c';
-  const band1 = edge + hh + (j0 - edge - hh) / 2; // zwischen Löchern und Bild (oben)
-  const band2 = SW - band1;
-  const fs = Math.min(1.25 * mm, (j0 - edge - hh) * 0.62);
-  if (fs > 3) {
-    ctx.fillStyle = textCol;
-    ctx.shadowColor = 'rgba(255,140,40,0.55)';
-    ctx.shadowBlur = fs * 0.35;
+// Filmgrund (vor dem Bild gezeichnet).
+function drawRebate(ctx, L, imgW, imgH, settings) {
+  const film = getFilm(settings.film);
+  const st = frameStyle(film);
+  const G = stripGeometry(L, imgW, imgH);
+  const { mm, SL, SW } = G;
+  ctx.save();
+  ctx.fillStyle = `rgb(${st.base.join(',')})`;
+  ctx.fillRect(0, 0, L.w, L.h);
+  toStripCoords(ctx, L);
+
+  // Randschleier: Licht, das in der Patrone an der Filmkante eindringt
+  if (st.fog) {
+    for (const [y0, y1] of [[0, 1.1 * mm], [SW, SW - 1.1 * mm]]) {
+      const gr = ctx.createLinearGradient(0, y0, 0, y1);
+      gr.addColorStop(0, st.fog);
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gr;
+      ctx.fillRect(0, Math.min(y0, y1), SL, Math.abs(y1 - y0));
+    }
+  }
+  // leichte, unregelmäßige Dichteschwankung entlang des Streifens
+  const r = rng((settings.seed ?? 1) ^ 0x5bd1);
+  for (let i = 0; i < 3; i++) {
+    const cx = r() * SL, cy = r() * SW, rad = (8 + r() * 14) * mm;
+    const gr = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+    gr.addColorStop(0, `rgba(${st.base.map((v) => v * 2.2 + 6).join(',')},0.10)`);
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr;
+    ctx.fillRect(cx - rad, cy - rad, 2 * rad, 2 * rad);
+  }
+  // Korn im Filmgrund
+  const pat = rebateGrain(ctx);
+  const k = Math.max(1, mm * 0.011);
+  if (pat.setTransform) pat.setTransform(new DOMMatrix().scale(k));
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.07;
+  ctx.fillStyle = pat;
+  ctx.fillRect(0, 0, SL, SW);
+  ctx.restore();
+}
+
+// Perforation, Bildfensterkante und Randbeschriftung (nach dem Bild).
+function drawFrame(ctx, L, imgW, imgH, settings, frameNo) {
+  const film = getFilm(settings.film);
+  const st = frameStyle(film);
+  const G = stripGeometry(L, imgW, imgH);
+  const { mm, SL, SW, iL, iS, i0, j0 } = G;
+  const r = rng((settings.seed ?? 1) ^ 0x2c1b);
+  const base = `rgb(${st.base.join(',')})`;
+
+  ctx.save();
+  toStripCoords(ctx, L);
+
+  // Bildfenster: leicht gerundete Ecken und eine weich auslaufende Kante
+  // (das Kamerafenster liegt nicht exakt in der Schärfeebene)
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(i0, j0, iL, iS);
+  roundRectPath(ctx, i0, j0, iL, iS, 0.32 * mm);
+  ctx.fillStyle = base;
+  ctx.fill('evenodd');
+  roundRectPath(ctx, i0, j0, iL, iS, 0.32 * mm, true);
+  ctx.strokeStyle = base;
+  ctx.lineWidth = Math.max(1, 0.08 * mm);
+  ctx.shadowColor = base;
+  ctx.shadowBlur = Math.max(1, 0.1 * mm);
+  ctx.stroke();
+  ctx.restore();
+
+  // Perforation (KS): symmetrisch zur Bildmitte, 8 Löcher je Bild
+  const pw = STRIP.perfW * mm, ph = STRIP.perfH * mm, pr = STRIP.perfR * mm;
+  const pitch = STRIP.pitch * mm;
+  const yTop = STRIP.margin * mm;
+  const yBot = SW - STRIP.margin * mm - ph;
+  const cx0 = i0 + iL / 2 + pitch / 2;
+  const first = cx0 - Math.ceil((cx0 + pw) / pitch) * pitch;
+  ctx.save();
+  if (st.holes === 'light') {
+    ctx.shadowColor = 'rgba(255,244,222,0.55)';
+    ctx.shadowBlur = 0.45 * mm;
+  }
+  for (let x = first; x < SL + pw; x += pitch) {
+    for (const y of [yTop, yBot]) {
+      roundRectPath(ctx, x - pw / 2, y, pw, ph, pr, true);
+      if (st.holes === 'light') {
+        const gr = ctx.createLinearGradient(0, y, 0, y + ph);
+        gr.addColorStop(0, '#f4eee2');
+        gr.addColorStop(0.5, '#fbf7ee');
+        gr.addColorStop(1, '#ece3d2');
+        ctx.fillStyle = gr;
+        ctx.fill();
+      } else {
+        ctx.fillStyle = '#020101';
+        ctx.fill();
+        // Schnittkante fängt etwas Licht
+        ctx.strokeStyle = 'rgba(255,225,190,0.09)';
+        ctx.lineWidth = Math.max(1, 0.05 * mm);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+
+  // Randbeschriftung (vorbelichtet, daher leicht weich)
+  const textH = 1.25 * mm;
+  if (textH >= 5) {
+    ctx.save();
+    ctx.fillStyle = st.text;
+    ctx.shadowColor = st.glow;
+    ctx.shadowBlur = 0.18 * mm;
     ctx.textBaseline = 'middle';
-    ctx.font = `700 ${fs}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    const label = `FILMKAMERA  ${film.name.toUpperCase()}  ${film.process}`;
-    ctx.textAlign = 'left';
-    ctx.fillText(label, i0 + 2 * mm, band1);
-    ctx.textAlign = 'right';
-    ctx.fillText(String(Math.max(1, frameNo - 1)), i0 - 0.4 * mm, band1);
-    // Bildnummern unten: „12  ▸12A“
-    ctx.textAlign = 'center';
-    ctx.fillText(String(frameNo), i0 + iL * 0.18, band2);
-    ctx.fillText(`▸ ${frameNo}A`, i0 + iL * 0.68, band2);
-    // DX-Strichcode-artige Markierungen
-    ctx.shadowBlur = 0;
-    const bx = i0 + iL * 0.32;
-    const bits = barcodeBits(film.iso + frameNo * 7);
-    for (let i = 0; i < bits.length; i++) {
-      if (!bits[i]) continue;
-      ctx.fillRect(bx + i * 0.55 * mm, band2 - fs * 0.45, 0.32 * mm, fs * 0.9);
+    const yT = (STRIP.margin * mm) / 2; // oberer Rand
+    const yB = SW - yT; // unterer Rand
+    const name = film.name.toUpperCase();
+    const lot = 1 + (((settings.seed ?? 7) >>> 3) % 9);
+    if (st.cine) {
+      edgeText(ctx, `FILMKAMERA  ${name}  ${film.process}  ${lot}2${lot + 1}`, i0 + 0.04 * iL, yT, textH);
+      edgeText(ctx, `${lot}`, i0 + 0.86 * iL, yT, textH);
+      // Fußnummer mit Strichcode (wie KeyKode beim Kinofilm)
+      const key = `KF ${10 + lot} ${String(1000 + ((settings.seed ?? 0) % 9000)).padStart(4, '0')} ${String((frameNo * 16) % 10000).padStart(4, '0')}+${String(frameNo % 16).padStart(2, '0')}`;
+      edgeText(ctx, key, i0 + 0.08 * iL, yB, textH * 0.9);
+      drawBarcode(ctx, i0 + 0.52 * iL, yB - textH * 0.42, textH * 0.84, 0.13 * mm, i0 + 0.97 * iL, (settings.seed ?? 3) + frameNo);
+    } else {
+      edgeText(ctx, `FILMKAMERA  ${name}  ${lot}`, i0 + 0.1 * iL, yT, textH);
+      edgeText(ctx, `${name}`, i0 + 0.68 * iL, yT, textH);
+      // Bildnummern: „12“ unter dem Bild, „▸12A“ an der halben Bildteilung
+      edgeText(ctx, String(frameNo), i0 + 0.2 * iL, yB, textH * 1.05, 'center');
+      edgeText(ctx, `▸${frameNo}A`, i0 + 0.46 * iL, yB, textH * 0.95, 'center');
+      // DX-Strichcode: Taktspur (außen) und Datenspur
+      drawDx(ctx, i0 + 0.6 * iL, SW, mm, film.iso + frameNo);
+    }
+    ctx.restore();
+  }
+
+  // Staub im Filmgrund (nur bei Negativen sichtbar: hell im Positiv)
+  if (st.dust) {
+    ctx.fillStyle = 'rgba(236,228,214,0.75)';
+    const n = 3 + Math.floor(r() * 6);
+    for (let i = 0; i < n; i++) {
+      const x = r() * SL;
+      const y = r() < 0.5 ? r() * (j0 - 0.4 * mm) : SW - r() * (j0 - 0.4 * mm);
+      const rad = (0.025 + r() * 0.06) * mm;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rad * (1 + r()), rad, r() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
   ctx.restore();
 }
 
-function barcodeBits(n) {
-  const bits = [1, 0, 1];
-  for (let i = 0; i < 16; i++) bits.push((n >> i) & 1, 0);
-  bits.push(1, 1, 0, 1);
-  return bits;
+// Schmale, gesperrte Schrift wie bei der Randbelichtung.
+function edgeText(ctx, text, x, y, h, align = 'left') {
+  ctx.save();
+  ctx.font = `700 ${h}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+  ctx.translate(x, y);
+  ctx.scale(0.8, 1);
+  ctx.textAlign = align;
+  let cx = 0;
+  const spacing = h * 0.08;
+  const widths = [...text].map((ch) => ctx.measureText(ch).width + spacing);
+  const total = widths.reduce((a, b) => a + b, 0);
+  if (align === 'center') cx = -total / 2;
+  ctx.textAlign = 'left';
+  [...text].forEach((ch, i) => {
+    ctx.fillText(ch, cx, 0);
+    cx += widths[i];
+  });
+  ctx.restore();
 }
 
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
+// DX-Code am unteren Rand: Taktspur (regelmäßig) und Datenspur.
+function drawDx(ctx, x0, SW, mm, value) {
+  const bw = 0.38 * mm, gap = 0.38 * mm, bh = 0.62 * mm;
+  const clockY = SW - 0.35 * mm - bh;
+  const dataY = clockY - bh - 0.18 * mm;
+  const bits = [1, 0, 1, 1];
+  for (let i = 0; i < 12; i++) bits.push((value >> i) & 1);
+  bits.push(0, 1, 1, 0, 1, 0, 1);
+  for (let i = 0; i < bits.length; i++) {
+    const x = x0 + i * (bw + gap) * 0.5;
+    if (i % 2 === 0) ctx.fillRect(x, clockY, bw * 0.5, bh);
+    if (bits[i]) ctx.fillRect(x, dataY, bw * 0.5, bh);
+  }
+}
+
+// Fußnummer-Strichcode (feine Module).
+function drawBarcode(ctx, x0, y, h, module, xEnd, seed) {
+  const r = rng(seed * 31 + 5);
+  let x = x0;
+  for (let i = 0; x < xEnd; i++) {
+    const w = module * (1 + Math.floor(r() * 3));
+    if (i % 2 === 0) ctx.fillRect(x, y, Math.min(w, xEnd - x), h);
+    x += w;
+  }
+}
+
+function roundRectPath(ctx, x, y, w, h, r, fresh = false) {
+  if (fresh) ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
   ctx.arcTo(x + w, y + h, x, y + h, r);
