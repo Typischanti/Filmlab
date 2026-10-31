@@ -1,0 +1,121 @@
+{
+  "size": 33,
+  "min": -3.6,
+  "max": 2.1,
+  "encoding": "srgb8",
+  "source": "Derived from spektrafilm profiles by Andrea Volpato (https://github.com/andreavolpato/spektrafilm), CC BY-SA 4.0",
+  "luts": {
+    "kodak_portra_160": {
+      "stock": "kodak_portra_160",
+      "name": "Kodak Portra 160",
+      "print": "kodak_portra_endura",
+      "printName": "Kodak Professional Portra Endura",
+      "type": "negative",
+      "use": "still"
+    },
+    "kodak_portra_400": {
+      "stock": "kodak_portra_400",
+      "name": "Kodak Portra 400",
+      "print": "kodak_portra_endura",
+      "printName": "Kodak Professional Portra Endura",
+      "type": "negative",
+      "use": "still"
+    },
+    "kodak_portra_800": {
+      "stock": "kodak_portra_800",
+      "name": "Kodak Portra 800",
+      "print": "kodak_portra_endura",
+      "printName": "Kodak Professional Portra Endura",
+      "type": "negative",
+      "use": "still"
+    },
+    "kodak_ektar_100": {
+      "stock": "kodak_ektar_100",
+      "name": "Kodak Ektar 100",
+      "print": "kodak_portra_endura",
+      "printName": "Kodak Professional Portra Endura",
+      "type": "negative",
+      "use": "still"
+    },
+    "kodak_gold_200": {
+      "stock": "kodak_gold_200",
+      "name": "Kodak Gold 200",
+      "print": "kodak_portra_endura",
+      "printName": "Kodak Professional Portra Endura",
+      "type": "negative",
+      "use": "still"
+    },
+    "kodak_ultramax_400": {
+      "stock": "kodak_ultramax_400",
+      "name": "Kodak Ultramax 400",
+      "print": "kodak_portra_endura",
+      "printName": "Kodak Professional Portra Endura",
+      "type": "negative",
+      "use": "still"
+    },
+    "fujifilm_pro_400h": {
+      "stock": "fujifilm_pro_400h",
+      "name": "Fujifilm Pro 400H",
+      "print": "fujifilm_crystal_archive_typeii",
+      "printName": "Fujifilm Crystal Archive Type II",
+      "type": "negative",
+      "use": "still"
+    },
+    "fujifilm_c200": {
+      "stock": "fujifilm_c200",
+      "name": "Fujifilm C200",
+      "print": "fujifilm_crystal_archive_typeii",
+      "printName": "Fujifilm Crystal Archive Type II",
+      "type": "negative",
+      "use": "still"
+    },
+    "kodak_vision3_250d": {
+      "stock": "kodak_vision3_250d",
+      "name": "Kodak Vision3 250D",
+      "print": "kodak_2383",
+      "printName": "Kodak Vision 2383",
+      "type": "negative",
+      "use": "cine"
+    },
+    "kodak_vision3_500t": {
+      "stock": "kodak_vision3_500t",
+      "name": "Kodak Vision3 500T",
+      "print": "kodak_2383",
+      "printName": "Kodak Vision 2383",
+      "type": "negative",
+      "use": "cine"
+    },
+    "fujifilm_velvia_100": {
+      "stock": "fujifilm_velvia_100",
+      "name": "Fujifilm Velvia 100",
+      "print": null,
+      "printName": null,
+      "type": "positive",
+      "use": "still"
+    },
+    "fujifilm_provia_100f": {
+      "stock": "fujifilm_provia_100f",
+      "name": "Fujifilm Provia 100F",
+      "print": null,
+      "printName": null,
+      "type": "positive",
+      "use": "still"
+    },
+    "kodak_ektachrome_100": {
+      "stock": "kodak_ektachrome_100",
+      "name": "Kodak Ektachrome 100",
+      "print": null,
+      "printName": null,
+      "type": "positive",
+      "use": "still"
+    },
+    "kodak_kodachrome_64": {
+      "stock": "kodak_kodachrome_64",
+      "name": "Kodak Kodachrome 64",
+      "print": null,
+      "printName": null,
+      "type": "positive",
+      "use": "still"
+    }
+  }
+}

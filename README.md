@@ -49,6 +49,20 @@ offline. Kamera und Lagesensor fragt sie beim ersten Start ab.
   Reglern neu entwickeln; Sichern in die Fotos-App über das Teilen-Menü
 - Import aus der Mediathek in voller Qualität (bis ca. 12 MP)
 
+**Spektrale Filme:** 14 weitere Filme (Portra 160/400/800, Ektar 100, Gold 200,
+Ultramax 400, Pro 400H, C200, Vision3 250D/500T, Velvia 100, Provia 100F,
+Ektachrome 100, Kodachrome 64) werden spektral berechnet: Szenenspektrum →
+gemessene Schichtempfindlichkeiten → Kennlinien → Farbstoffspektren →
+Fotopapier bzw. Kinokopierfilm → Normbeobachter. Die Messdaten stammen aus
+[spektrafilm](https://github.com/andreavolpato/spektrafilm) von Andrea Volpato
+(CC BY-SA 4.0); die Berechnung ist eine eigene Umsetzung in `tools/spectral/`
+und wird vorab in 3D-LUTs (`camera/luts/`, ebenfalls CC BY-SA 4.0, siehe
+`LICENSE.txt` und `CHANGELOG.txt` dort) gerechnet:
+
+```bash
+node tools/spectral/bake-luts.mjs --profiles <spektrafilm>/src/spektrafilm/data/profiles
+```
+
 **Grenzen einer Web-App:** Safari liefert nur den Videostream der Kamera
 (höchstens ca. 12 MP, automatische Belichtung, kein RAW/ProRAW, kein manueller
 Fokus). Für maximale Qualität mit der iPhone-Kamera fotografieren und das Foto

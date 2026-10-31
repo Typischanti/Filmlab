@@ -24,19 +24,24 @@
       <button id="btnAspect" class="pill" aria-label="Bildformat">3:2</button>
       <div class="top-toggles">
         <button id="btnDate" class="icon-btn toggle" aria-label="Datumsstempel" aria-pressed="false"></button>
-        <button id="btnFrame" class="icon-btn toggle" aria-label="Filmrahmen" aria-pressed="false"></button>
+        <button id="btnFrame" class="icon-btn toggle" aria-label="Rahmen" aria-pressed="false"></button>
         <button id="btnLeak" class="icon-btn toggle" aria-label="Lichtleck" aria-pressed="false"></button>
+        <button id="btnTimer" class="icon-btn toggle" aria-label="Selbstauslöser" aria-pressed="false"></button>
       </div>
       <button id="btnAdjust" class="icon-btn" aria-label="Regler"></button>
     </header>
 
     <div id="viewfinder" class="viewfinder">
       <div id="vfFrame" class="vf-frame">
-        <div id="glMountCam" class="gl-mount"></div>
-        <div id="vfDate" class="vf-date" hidden></div>
-        <div id="vfFrameBadge" class="vf-badge" hidden>Filmrahmen</div>
+        <div id="vfImage" class="vf-image">
+          <div id="glMountCam" class="gl-mount"></div>
+          <div id="vfDate" class="vf-date" hidden></div>
+          <div id="flash" class="flash"></div>
+        </div>
+        <canvas id="vfBorder" class="vf-border"></canvas>
+        <div id="vfRoll" class="vf-roll" hidden></div>
         <div id="vfEv" class="vf-ev" hidden></div>
-        <div id="flash" class="flash"></div>
+        <div id="vfCount" class="vf-count" hidden></div>
       </div>
       <div id="camMsg" class="cam-msg" hidden>
         <p id="camMsgText">Kamera wird gestartet …</p>
@@ -103,8 +108,11 @@
     </header>
     <div id="editStage" class="edit-stage">
       <div id="editFrame" class="vf-frame">
-        <div id="glMountEdit" class="gl-mount"></div>
-        <div id="edDate" class="vf-date" hidden></div>
+        <div id="edImage" class="vf-image">
+          <div id="glMountEdit" class="gl-mount"></div>
+          <div id="edDate" class="vf-date" hidden></div>
+        </div>
+        <canvas id="edBorder" class="vf-border"></canvas>
       </div>
     </div>
     <div class="edit-controls">
@@ -112,7 +120,7 @@
         <button id="btnEdAspect" class="pill">3:2</button>
         <div class="top-toggles">
           <button id="btnEdDate" class="icon-btn toggle" aria-label="Datumsstempel" aria-pressed="false"></button>
-          <button id="btnEdFrame" class="icon-btn toggle" aria-label="Filmrahmen" aria-pressed="false"></button>
+          <button id="btnEdFrame" class="icon-btn toggle" aria-label="Rahmen" aria-pressed="false"></button>
           <button id="btnEdLeak" class="icon-btn toggle" aria-label="Lichtleck" aria-pressed="false"></button>
         </div>
         <button id="btnEdAdjust" class="icon-btn" aria-label="Regler"></button>

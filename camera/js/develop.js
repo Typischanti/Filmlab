@@ -114,12 +114,30 @@ export function frameLayout(imgW, imgH) {
     : { w: S, h: L, ix: Math.round((S - imgW) / 2), iy: Math.round((L - imgH) / 2), mm, landscape };
 }
 
+// Rahmenarten: Lage des Bildes im fertigen Abzug (alle Maße in Pixeln).
+//  strip:   gescannter Kleinbildstreifen
+//  print:   Laborabzug mit schmalem weißem Papierrand
+//  instant: Sofortbild mit breiterem Rand unten
+export function borderLayout(kind, imgW, imgH) {
+  const S = Math.min(imgW, imgH);
+  if (kind === 'strip') return { kind, ...frameLayout(imgW, imgH) };
+  if (kind === 'print') {
+    const b = Math.round(S * 0.045);
+    return { kind, w: imgW + 2 * b, h: imgH + 2 * b, ix: b, iy: b };
+  }
+  if (kind === 'instant') {
+    const side = Math.round(S * 0.065), top = Math.round(S * 0.075), bottom = Math.round(S * 0.27);
+    return { kind, w: imgW + 2 * side, h: imgH + top + bottom, ix: side, iy: top };
+  }
+  return { kind: 'none', w: imgW, h: imgH, ix: 0, iy: 0 };
+}
+
 // Ausgabegröße so wählen, dass das fertige Bild (ggf. mit Rahmen) in die
 // Größengrenze von Safari passt.
 export function outputSize(srcW, srcH, settings) {
   const crop = cropRect(srcW, srcH, settings.aspect);
   let w = crop.w, h = crop.h;
-  const k = settings.frame ? frameLayout(w, h) : { w, h };
+  const k = borderLayout(settings.border, w, h);
   const area = k.w * k.h;
   if (area > MAX_CANVAS_AREA) {
     const s = Math.sqrt(MAX_CANVAS_AREA / area);
@@ -133,26 +151,81 @@ export function outputSize(srcW, srcH, settings) {
 export function developToCanvas(renderer, srcW, srcH, settings, opts = {}) {
   const { crop, w, h } = outputSize(srcW, srcH, settings);
   const img = renderer.renderToImageData(settings, crop, w, h, { seed: settings.seed });
-  let canvas, ix = 0, iy = 0;
-  if (settings.frame) {
-    const L = frameLayout(w, h);
-    canvas = document.createElement('canvas');
+  const L = borderLayout(settings.border, w, h);
+  const canvas = document.createElement('canvas');
+  canvas.width = L.w;
+  canvas.height = L.h;
+  const ctx = canvas.getContext('2d');
+  drawBorderBack(ctx, L, w, h, settings);
+  ctx.putImageData(img, L.ix, L.iy);
+  drawBorderFront(ctx, L, w, h, settings, opts.frameNo ?? 1);
+  if (settings.date) drawDateStamp(ctx, L.ix, L.iy, w, h, settings.takenAt ?? Date.now());
+  return canvas;
+}
+
+// Rahmen für den Sucher: Bildbereich bleibt durchsichtig, darunter liegt
+// die Live-Vorschau.
+export function drawBorderPreview(canvas, kind, imgW, imgH, settings, frameNo = 1) {
+  const L = borderLayout(kind, imgW, imgH);
+  if (canvas.width !== L.w || canvas.height !== L.h) {
     canvas.width = L.w;
     canvas.height = L.h;
-    const ctx = canvas.getContext('2d');
-    drawRebate(ctx, L, w, h, settings);
-    ix = L.ix;
-    iy = L.iy;
-    ctx.putImageData(img, ix, iy);
-    drawFrame(ctx, L, w, h, settings, opts.frameNo ?? 1);
-  } else {
-    canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    canvas.getContext('2d').putImageData(img, 0, 0);
   }
-  if (settings.date) drawDateStamp(canvas.getContext('2d'), ix, iy, w, h, settings.takenAt ?? Date.now());
-  return canvas;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, L.w, L.h);
+  if (kind === 'none') return L;
+  drawBorderBack(ctx, L, imgW, imgH, settings);
+  ctx.clearRect(L.ix, L.iy, imgW, imgH);
+  drawBorderFront(ctx, L, imgW, imgH, settings, frameNo);
+  return L;
+}
+
+function drawBorderBack(ctx, L, imgW, imgH, settings) {
+  if (L.kind === 'strip') drawRebate(ctx, L, imgW, imgH, settings);
+  else if (L.kind === 'print') drawPaper(ctx, L, '#f4f1eb', 0.035);
+  else if (L.kind === 'instant') drawPaper(ctx, L, '#f1eee5', 0.05, true);
+}
+
+function drawBorderFront(ctx, L, imgW, imgH, settings, frameNo) {
+  if (L.kind === 'strip') drawFrame(ctx, L, imgW, imgH, settings, frameNo);
+  else if (L.kind === 'print') drawImageEdge(ctx, L, imgW, imgH, 'rgba(0,0,0,0.16)', 0.0012, 0.002);
+  else if (L.kind === 'instant') drawImageEdge(ctx, L, imgW, imgH, 'rgba(28,22,16,0.55)', 0.004, 0.006);
+}
+
+// Papier bzw. Sofortbildkarte: leicht strukturiert, mit sanftem Lichtverlauf.
+function drawPaper(ctx, L, color, texture, card = false) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, L.w, L.h);
+  const gr = ctx.createLinearGradient(0, 0, L.w, L.h);
+  gr.addColorStop(0, 'rgba(255,255,255,0.35)');
+  gr.addColorStop(1, card ? 'rgba(120,105,80,0.10)' : 'rgba(120,110,95,0.05)');
+  ctx.fillStyle = gr;
+  ctx.fillRect(0, 0, L.w, L.h);
+  const pat = rebateGrain(ctx);
+  const k = Math.max(1, Math.min(L.w, L.h) / 900);
+  if (pat.setTransform) pat.setTransform(new DOMMatrix().scale(k));
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.globalAlpha = texture;
+  ctx.fillStyle = pat;
+  ctx.fillRect(0, 0, L.w, L.h);
+  ctx.restore();
+}
+
+// Bildkante: beim Abzug eine feine Papierkante, beim Sofortbild der
+// dunkle, leicht unregelmäßige Rand der Entwicklerpaste.
+function drawImageEdge(ctx, L, imgW, imgH, color, width, blur) {
+  const S = Math.min(imgW, imgH);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(L.ix, L.iy, imgW, imgH);
+  ctx.clip();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, S * width);
+  ctx.shadowColor = color;
+  ctx.shadowBlur = Math.max(1, S * blur);
+  ctx.strokeRect(L.ix, L.iy, imgW, imgH);
+  ctx.restore();
 }
 
 export async function develop(renderer, srcW, srcH, settings, opts = {}) {
@@ -192,7 +265,11 @@ const STRIP = {
 };
 
 function frameStyle(film) {
-  if (film.type === 'slide') {
+  if (film.bw) {
+    // S/W-Negativ: klarer Träger wird im Positiv schwarz, Randbelichtung hellgrau
+    return { base: [10, 10, 10], holes: 'dark', text: '#e9e7e2', glow: 'rgba(255,255,255,0.3)', fog: 'rgba(70,70,70,0.18)', dust: true };
+  }
+  if (film.type === 'slide' || film.slide) {
     return { base: [7, 6, 9], holes: 'light', text: '#f3e6bd', glow: 'rgba(255,236,190,0.45)', fog: 'rgba(70,45,30,0.0)', dust: false };
   }
   if (film.process === 'ECN-2') {
