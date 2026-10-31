@@ -84,3 +84,18 @@ test('Lichtlecks sind reproduzierbar, Einstellungen werden bereinigt', () => {
   assert.equal(dateStampText(new Date(2026, 9, 31).getTime()), "'26 10 31");
   assert.equal(dateStampText(new Date(2026, 2, 5).getTime()), "'26  3 05");
 });
+
+test('Dynamik hebt zurückhaltende Farben stärker an als kräftige', () => {
+  const sat = (c) => Math.max(...c) - Math.min(...c);
+  const muted = [0.55, 0.48, 0.42];
+  const vivid = [0.85, 0.25, 0.12];
+  const withVib = buildUniforms({ film: 'alltag400' });
+  const noVib = { ...withVib, vib: 0 };
+  const gainMuted = sat(filmPixel(muted, withVib)) / sat(filmPixel(muted, noVib));
+  const gainVivid = sat(filmPixel(vivid, withVib)) / sat(filmPixel(vivid, noVib));
+  assert.ok(gainMuted > 1.15, `zurückhaltend ${gainMuted}`);
+  assert.ok(gainVivid < gainMuted && gainVivid < 1.1, `kräftig ${gainVivid}`);
+  // Grau bleibt grau
+  const g = filmPixel([0.4613, 0.4613, 0.4613], buildUniforms({ film: 'alltag400', temp: -0.3, tint: 0.08 }));
+  assert.ok(sat(g) < 0.02);
+});

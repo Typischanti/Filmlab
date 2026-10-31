@@ -185,6 +185,7 @@ export function buildUniforms(settings, ctx = {}) {
     gain: Math.pow(2, s.ev),
     cross: normalizeRows(film.cross),
     sat: Math.max(0, 1 + film.sat + s.saturation * 0.6),
+    vib: film.vibrance ?? 0,
     dmin,
     dmax,
     toe: film.paper.toe * Math.pow(2, -s.highlights * 1.2),
@@ -230,6 +231,16 @@ export function buildUniforms(settings, ctx = {}) {
   return U;
 }
 
+// Sättigung im Log-Raum. Dynamik (vib) verstärkt zurückhaltende Farben
+// mehr als bereits kräftige: Die Zwischenschichteffekte wirken am stärksten
+// bei kleinen Belichtungsunterschieden der Schichten.
+const VIB_WIDTH = 0.3; // log10-Spreizung, ab der die Dynamik abklingt
+
+export function satGain(u, m, U) {
+  const c = Math.max(Math.abs(u[0] - m), Math.abs(u[1] - m), Math.abs(u[2] - m));
+  return U.sat * (1 + U.vib * Math.exp(-c / VIB_WIDTH));
+}
+
 // Referenz-Pixel: sRGB-Wert (0..1) -> sRGB-Ausgabe. noise: Kornrauschen je
 // Schicht, extra: zusätzliches lineares Licht (Halation, Lichtleck).
 export function filmPixel(rgb, U, noise = [0, 0, 0], extra = [0, 0, 0]) {
@@ -237,7 +248,7 @@ export function filmPixel(rgb, U, noise = [0, 0, 0], extra = [0, 0, 0]) {
   const e = U.cross.map((row) => row[0] * c[0] + row[1] * c[1] + row[2] * c[2]);
   let u = e.map((v) => Math.log10(Math.max(v, E_FLOOR)) - LOG_MID);
   const m = (u[0] + u[1] + u[2]) / 3;
-  u = u.map((v) => m + (v - m) * U.sat);
+  u = u.map((v) => m + (v - m) * satGain(u, m, U));
   let Dl;
   if (U.type === 1) {
     Dl = u.map((v, k) => {

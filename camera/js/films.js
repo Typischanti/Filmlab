@@ -10,6 +10,7 @@
 // gamma:    Gesamtgradation (Film x Papier) im Mittelton
 // layers:   relative Gradation der Schichten (Farbverschiebung Tiefen/Lichter)
 // sat:      Zwischenschichteffekte (DIR-Kuppler), > 0 kräftigere Farben
+// vibrance: Dynamik – hebt zurückhaltende Farben stärker an als kräftige
 // temp/tint: Grundfilterung des Labors
 // latitude: Belichtungsspielraum des Negativs unter Mittelgrau (log10)
 // paper:    Dmin/Dmax und Weichheit von Fuß (Lichter) und Schulter (Tiefen)
@@ -92,12 +93,13 @@ export const FILMS = [
     cross: CROSS_WARM,
     gamma: 1.08,
     layers: [1.0, 1.0, 0.92],
-    sat: 0.34,
+    sat: 0.42,
+    vibrance: 0.45,
     temp: 0.3,
     tint: -0.08,
     latitude: 1.8,
     paper: { dmin: 0.08, dmax: 2.3, toe: 0.11, shoulder: 0.28 },
-    dyes: 0.75,
+    dyes: 0.65,
     grain: { amount: 0.05, size: 0.001, color: 0.45 },
     halation: { amount: 0.45, radius: 0.013, tint: [1.0, 0.32, 0.08] },
     bloom: 0.05,
