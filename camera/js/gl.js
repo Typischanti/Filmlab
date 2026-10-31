@@ -69,6 +69,7 @@ uniform mat3 uSrcM;
 uniform float uGain;
 uniform mat3 uCross;
 uniform float uSat;
+uniform float uVib;
 uniform int uType;
 uniform vec3 uNegG;
 uniform float uLat;
@@ -163,7 +164,9 @@ void main() {
   vec3 e = max(uCross * c, vec3(1e-5));
   vec3 u = log(e) * 0.4342945 - LOG_MID;
   float m = (u.r + u.g + u.b) / 3.0;
-  u = m + (u - m) * uSat;
+  vec3 du = abs(u - m);
+  float spread = max(du.r, max(du.g, du.b));
+  u = m + (u - m) * (uSat * (1.0 + uVib * exp(-spread / 0.3)));
 
   vec3 n = vec3(0.0);
   if (uGrainAmp > 0.0) {
@@ -408,6 +411,7 @@ export class FilmRenderer {
     gl.uniform1f(L.uGain, U.gain);
     gl.uniformMatrix3fv(L.uCross, false, mat3RowsToGl(U.cross));
     gl.uniform1f(L.uSat, U.sat);
+    gl.uniform1f(L.uVib, U.vib);
     gl.uniform1i(L.uType, U.type);
     gl.uniform3fv(L.uNegG, U.negG);
     gl.uniform1f(L.uLat, U.lat);
