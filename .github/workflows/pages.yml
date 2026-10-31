@@ -27,7 +27,7 @@ jobs:
       - name: Seite zusammenstellen
         run: |
           mkdir -p _site
-          cp -r index.html css js assets _site/
+          cp -r index.html css js assets camera _site/
       - uses: actions/upload-pages-artifact@v3
       - id: deployment
         uses: actions/deploy-pages@v4
