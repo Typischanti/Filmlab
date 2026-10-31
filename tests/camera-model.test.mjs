@@ -140,11 +140,18 @@ test('Spektrale Filme: LUTs vollständig, Grau neutral, Mittelgrau erhalten', as
     registerLut(f.lut, { size: idx.size, min: idx.min, max: idx.max, data });
     const U = buildUniforms({ film: f.id, grain: 0 });
     assert.equal(U.type, 2);
-    for (const st of [-4, -1, 0, 1, 3]) {
+    // Mittelgrau neutral (Laborabgleich); 500T bleibt als Kunstlichtfilm
+    // bei Tageslicht absichtlich kühl. Schatten/Lichter dürfen filmtypische,
+    // aber nur leichte Stiche haben.
+    const tint = (st) => {
       const L = 0.18 * 2 ** st;
       const o = filmPixelLinear([L, L, L], U);
-      assert.ok(Math.max(...o) - Math.min(...o) < 0.02, `${f.id} grau bei ${st}: ${o}`);
-    }
+      return { o, t: Math.max(...o) - Math.min(...o) };
+    };
+    const m0 = tint(0);
+    if (f.lut === 'kodak_vision3_500t') assert.ok(m0.o[2] > m0.o[0] + 0.03, `${f.id} kühl: ${m0.o}`);
+    else assert.ok(m0.t < 0.012, `${f.id} Mittelgrau neutral: ${m0.o}`);
+    for (const st of [-4, -2, 2, 3]) assert.ok(tint(st).t < 0.15, `${f.id} Stich bei ${st}: ${tint(st).o}`);
     const mid = filmPixelLinear([0.18, 0.18, 0.18], U).map(lin);
     assert.ok(Math.abs(mid[1] - 0.18) < 0.03, `${f.id} Mittelgrau ${mid[1]}`);
   }

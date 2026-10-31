@@ -21,22 +21,28 @@ export const LUT_SIZE = 33;
 export const LUT_MIN = -3.6; // ≈ 12 Blenden unter Mittelgrau
 export const LUT_MAX = 2.1; // ≈ 7 Blenden über Mittelgrau
 
-export const STOCKS = [
-  'kodak_portra_160',
-  'kodak_portra_400',
-  'kodak_portra_800',
-  'kodak_ektar_100',
-  'kodak_gold_200',
-  'kodak_ultramax_400',
-  'fujifilm_pro_400h',
-  'fujifilm_c200',
-  'kodak_vision3_250d',
-  'kodak_vision3_500t',
-  'fujifilm_velvia_100',
-  'fujifilm_provia_100f',
-  'kodak_ektachrome_100',
-  'kodak_kodachrome_64',
+// Film, Abzugsmaterial und Abstimmung. print: Papier bzw. Kopierfilm wie im
+// Labor üblich (Messdaten), dir: Stärke der DIR-Kuppler (nicht in den
+// Profilen enthalten, nach dem bekannten Charakter des Films abgestimmt),
+// balanceCCT: Farbtemperatur, auf die das Labor filtert.
+export const STOCK_CONFIG = [
+  { stock: 'kodak_portra_160', print: 'kodak_portra_endura', dir: 0.12 },
+  { stock: 'kodak_portra_400', print: 'kodak_portra_endura', dir: 0.22 },
+  { stock: 'kodak_portra_800', print: 'kodak_supra_endura', dir: 0.3 },
+  { stock: 'kodak_ektar_100', print: 'kodak_ultra_endura', dir: 0.42 },
+  { stock: 'kodak_gold_200', print: 'kodak_endura_premier', dir: 0.32 },
+  { stock: 'kodak_ultramax_400', print: 'kodak_ektacolor_edge', dir: 0.38 },
+  { stock: 'fujifilm_pro_400h', print: 'fujifilm_crystal_archive_typeii', dir: 0.18 },
+  { stock: 'fujifilm_c200', print: 'fujifilm_crystal_archive_typeii', dir: 0.3 },
+  { stock: 'kodak_vision3_250d', print: 'kodak_2383', dir: 0.15 },
+  { stock: 'kodak_vision3_500t', print: 'kodak_2383', dir: 0.15, balanceCCT: 3300 },
+  { stock: 'fujifilm_velvia_100', dir: 0.38 },
+  { stock: 'fujifilm_provia_100f', dir: 0.12 },
+  { stock: 'kodak_ektachrome_100', dir: 0.22 },
+  { stock: 'kodak_kodachrome_64', dir: 0.3 },
 ];
+export const STOCKS = STOCK_CONFIG.map((c) => c.stock);
+export const BALANCE = 0.5; // halbe Graubalance: Filmcharakter bleibt teilweise
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(here, '../../camera/luts');
@@ -52,9 +58,10 @@ function bake(dir, stock) {
   const read = (n) => JSON.parse(fs.readFileSync(path.join(dir, `${n}.json`), 'utf8'));
   const filmJson = read(stock);
   const film = loadProfile(filmJson);
-  const printId = film.type === 'negative' ? film.targetPrint : null;
+  const cfg = STOCK_CONFIG.find((c) => c.stock === stock) ?? {};
+  const printId = film.type === 'negative' ? cfg.print ?? film.targetPrint : null;
   const print = printId ? loadProfile(read(printId)) : null;
-  const chain = makeChain(film, print);
+  const chain = makeChain(film, print, { dir: cfg.dir ?? 0, balance: BALANCE, balanceCCT: cfg.balanceCCT });
   const N = LUT_SIZE;
   const data = new Uint8Array(N * N * N * 3);
   const ax = Array.from({ length: N }, (_, i) => 0.18 * Math.pow(10, LUT_MIN + ((LUT_MAX - LUT_MIN) * i) / (N - 1)));
