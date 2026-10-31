@@ -2,14 +2,14 @@
 
 import { FILMS, getFilm } from './films.js';
 import {
-  ASPECT_LABELS, DEFAULT_SETTINGS, SLIDERS, normalizeSettings, cropRect, dateStampText,
+  ASPECT_LABELS, BORDERS, BORDER_LABELS, DEFAULT_SETTINGS, SLIDERS, normalizeSettings, cropRect, dateStampText,
 } from './model.js';
 import { FilmRenderer } from './gl.js';
 import { Camera } from './camera.js';
 import * as store from './store.js';
 import {
   loadImage, imageToCanvas, canvasToBlob, scaledCanvas, exifDate, developToCanvas,
-  photoFileName, shareFiles,
+  photoFileName, shareFiles, borderLayout, drawBorderPreview,
 } from './develop.js';
 import { ICONS, setIcon } from './icons.js';
 
@@ -17,6 +17,9 @@ const $ = (id) => document.getElementById(id);
 const CAM_ASPECTS = ['3:2', '16:9', '2.39'];
 const EDIT_ASPECTS = ['orig', '3:2', '16:9', '2.39'];
 const PREVIEW_SOURCE_MAX = 2048;
+const ROLL_LENGTH = 36;
+const ROLL_MODES = { off: 'Aus', roll: '36 Bilder', lab: '36 Bilder, Entwicklung am Ende' };
+const TIMERS = [0, 3, 10];
 
 // ---------------------------------------------------------------------------
 // Zustand & Speicher
@@ -39,7 +42,10 @@ function writeJson(key, value) {
 
 const state = {
   settings: normalizeSettings(readJson('filmkamera.settings', null)),
-  prefs: { quality: 'high', sound: true, motion: true, ...readJson('filmkamera.prefs', {}) },
+  prefs: { quality: 'high', sound: true, motion: true, timer: 0, roll: 'off', ...readJson('filmkamera.prefs', {}) },
+  looks: readJson('filmkamera.looks', []),
+  roll: readJson('filmkamera.roll', null), // { id, film, count }
+  pendingCount: 0,
   screen: 'cam',
   photos: [],
   thumbUrls: new Map(),
@@ -60,6 +66,13 @@ function saveSettings() {
 }
 function savePrefs() {
   writeJson('filmkamera.prefs', state.prefs);
+}
+
+function saveLooks() {
+  writeJson('filmkamera.looks', state.looks);
+}
+function saveRoll() {
+  writeJson('filmkamera.roll', state.roll);
 }
 
 function randomSeed() {
@@ -160,9 +173,18 @@ function dpr() {
 }
 
 // ---------------------------------------------------------------------------
-// Filmauswahl
+// Filmauswahl und eigene Looks
 
-function buildFilmStrip(container, getId, onPick) {
+function targetSettings(target) {
+  return target === 'edit' ? state.edit?.settings : state.settings;
+}
+
+function stripFor(target) {
+  return $(target === 'edit' ? 'filmStripEdit' : 'filmStripCam');
+}
+
+function buildFilmStrip(target) {
+  const container = stripFor(target);
   container.innerHTML = '';
   for (const f of FILMS) {
     const b = document.createElement('button');
@@ -171,17 +193,52 @@ function buildFilmStrip(container, getId, onPick) {
     b.setAttribute('role', 'radio');
     b.innerHTML = `<div class="film-swatch" style="background:linear-gradient(90deg,${f.swatch.join(',')})"></div>
       <div class="film-name">${f.name}</div><div class="film-meta">${f.group}</div>`;
+    b.addEventListener('click', () => pickFilm(target, f.id));
+    container.appendChild(b);
+  }
+  const sep = document.createElement('div');
+  sep.className = 'strip-sep';
+  container.appendChild(sep);
+  for (const look of state.looks) {
+    const f = getFilm(look.settings.film);
+    const b = document.createElement('button');
+    b.className = 'film-card look';
+    b.dataset.look = look.id;
+    b.innerHTML = `<div class="film-swatch" style="background:linear-gradient(90deg,${f.swatch.join(',')})"></div>
+      <div class="film-name"></div><div class="film-meta">Mein Look</div>`;
+    b.querySelector('.film-name').textContent = look.name;
+    // Langes Drücken löscht den Look
+    let timer = 0, long = false;
+    b.addEventListener('pointerdown', () => {
+      long = false;
+      timer = setTimeout(() => {
+        long = true;
+        deleteLook(look);
+      }, 600);
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => clearTimeout(timer));
     b.addEventListener('click', () => {
-      onPick(f.id);
-      markFilmStrip(container, f.id);
+      if (!long) applyLook(target, look);
     });
     container.appendChild(b);
   }
-  markFilmStrip(container, getId(), false);
+  const add = document.createElement('button');
+  add.className = 'film-card add';
+  add.innerHTML = '<span><b>+</b>Look sichern</span>';
+  add.addEventListener('click', () => saveLook(target));
+  container.appendChild(add);
+  markFilmStrip(container, targetSettings(target)?.film, false);
+  container.classList.toggle('locked', target === 'cam' && rollLocked());
+}
+
+function rebuildFilmStrips() {
+  buildFilmStrip('cam');
+  if (state.edit) buildFilmStrip('edit');
 }
 
 function markFilmStrip(container, id, smooth = true) {
   for (const b of container.children) {
+    if (!b.dataset.id) continue;
     const on = b.dataset.id === id;
     b.setAttribute('aria-checked', on ? 'true' : 'false');
     if (on) {
@@ -189,6 +246,62 @@ function markFilmStrip(container, id, smooth = true) {
       container.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' });
     }
   }
+}
+
+function afterSettingsPick(target) {
+  haptic();
+  onSettingsChanged(target);
+  if (state.sheetFor === target) buildSheet();
+  markFilmStrip(stripFor(target), targetSettings(target).film);
+}
+
+function pickFilm(target, id) {
+  const s = targetSettings(target);
+  if (!s) return;
+  if (target === 'cam' && rollLocked() && id !== state.roll.film) {
+    toast(`Im Film steckt noch eine Rolle ${getFilm(state.roll.film).name} (${state.roll.count}/${ROLL_LENGTH}). Zum Wechseln zurückspulen.`, false, 3600);
+    markFilmStrip(stripFor(target), s.film);
+    return;
+  }
+  s.film = id;
+  afterSettingsPick(target);
+}
+
+function lookSettings(s) {
+  const { seed, takenAt, ...rest } = s;
+  return rest;
+}
+
+function applyLook(target, look) {
+  const s = targetSettings(target);
+  if (!s) return;
+  const keep = { seed: s.seed, takenAt: s.takenAt, aspect: s.aspect };
+  Object.assign(s, normalizeSettings({ ...look.settings }), { seed: keep.seed, takenAt: keep.takenAt });
+  if (target === 'cam' && !CAM_ASPECTS.includes(s.aspect)) s.aspect = keep.aspect;
+  if (target === 'cam' && rollLocked() && s.film !== state.roll.film) {
+    s.film = state.roll.film;
+    toast('Look übernommen – der Film der eingelegten Rolle bleibt.');
+  } else toast(`Look „${look.name}“`);
+  afterSettingsPick(target);
+}
+
+function saveLook(target) {
+  const s = targetSettings(target);
+  if (!s) return;
+  const name = (prompt('Name für deinen Look:', `${getFilm(s.film).name} – mein Look`) || '').trim();
+  if (!name) return;
+  state.looks.push({ id: store.newId(), name: name.slice(0, 40), settings: lookSettings(s) });
+  saveLooks();
+  rebuildFilmStrips();
+  toast(`Look „${name}“ gesichert.`);
+}
+
+function deleteLook(look) {
+  haptic();
+  if (!confirm(`Look „${look.name}“ löschen?`)) return;
+  state.looks = state.looks.filter((l) => l.id !== look.id);
+  saveLooks();
+  rebuildFilmStrips();
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +355,12 @@ function buildSheet() {
   const sw = document.createElement('div');
   sw.className = 'sheet-switches';
   sw.appendChild(makeSwitch('Datumsstempel', () => sheetSettings().date, (v) => (sheetSettings().date = v)));
-  sw.appendChild(makeSwitch('Filmrahmen', () => sheetSettings().frame, (v) => (sheetSettings().frame = v)));
+  sw.appendChild(
+    makeSelect('Rahmen', BORDERS.map((b) => [b, BORDER_LABELS[b]]), () => sheetSettings().border, (v) => {
+      sheetSettings().border = v;
+      onSettingsChanged(state.sheetFor);
+    }),
+  );
   body.appendChild(sw);
 
   if (state.sheetFor === 'cam') {
@@ -259,6 +377,35 @@ function buildSheet() {
       }, true),
     );
     body.appendChild(makeSwitch('Auslöseton', () => state.prefs.sound, (v) => { state.prefs.sound = v; savePrefs(); }, true));
+    body.appendChild(
+      makeSelect('Selbstauslöser', TIMERS.map((t) => [String(t), t ? `${t} Sekunden` : 'Aus']), () => String(state.prefs.timer), (v) => {
+        state.prefs.timer = Number(v);
+        savePrefs();
+        syncCamToggles();
+      }),
+    );
+    body.appendChild(
+      makeSelect('Filmrolle', Object.entries(ROLL_MODES), () => state.prefs.roll, async (v) => {
+        const prev = state.prefs.roll;
+        state.prefs.roll = v;
+        savePrefs();
+        if (v === 'off' && state.roll) await finishRoll(prev === 'lab');
+        syncCamToggles();
+        buildSheet();
+      }),
+    );
+    if (state.prefs.roll !== 'off' && state.roll?.count) {
+      const rw = document.createElement('button');
+      rw.className = 'btn sheet-action';
+      rw.textContent = `Rolle zurückspulen (${state.roll.count}/${ROLL_LENGTH})`;
+      rw.addEventListener('click', async () => {
+        const lab = state.prefs.roll === 'lab';
+        if (!confirm(lab ? 'Rolle jetzt zurückspulen und entwickeln?' : 'Rolle jetzt zurückspulen? Danach kannst du einen anderen Film einlegen.')) return;
+        await finishRoll(lab);
+        buildSheet();
+      });
+      body.appendChild(rw);
+    }
     body.appendChild(
       makeSwitch('Querformat erkennen (Lagesensor)', () => state.prefs.motion, (v) => {
         state.prefs.motion = v;
@@ -361,6 +508,24 @@ function makeSwitch(label, get, set, plainPref = false) {
   return row;
 }
 
+function makeSelect(label, options, get, set) {
+  const row = document.createElement('label');
+  row.className = 'select-row';
+  const span = document.createElement('span');
+  span.textContent = label;
+  const sel = document.createElement('select');
+  for (const [value, text] of options) {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    sel.appendChild(o);
+  }
+  sel.value = get();
+  sel.addEventListener('change', () => set(sel.value));
+  row.append(span, sel);
+  return row;
+}
+
 $('btnSheetClose').addEventListener('click', closeSheet);
 $('btnSheetReset').addEventListener('click', () => {
   const s = sheetSettings();
@@ -457,15 +622,41 @@ function camCrop() {
   return cropRect(camera.width, camera.height, state.settings.aspect);
 }
 
+// Bild samt Rahmen in den verfügbaren Platz einpassen. Der Rahmen liegt als
+// eigene Ebene über dem Live-Bild, der Bildbereich bleibt durchsichtig.
+function layoutStage({ container, frame, image, border, cropW, cropH, settings, frameNo }) {
+  const L0 = borderLayout(settings.border, cropW, cropH);
+  const box = fitBox(container, L0.w / L0.h);
+  const k = box.w / L0.w;
+  const img = { w: Math.max(1, Math.round(cropW * k)), h: Math.max(1, Math.round(cropH * k)) };
+  frame.style.width = `${box.w}px`;
+  frame.style.height = `${box.h}px`;
+  image.style.left = `${Math.round(L0.ix * k)}px`;
+  image.style.top = `${Math.round(L0.iy * k)}px`;
+  image.style.width = `${img.w}px`;
+  image.style.height = `${img.h}px`;
+  const d = dpr();
+  // fester Startwert: Staub und Struktur des Rahmens bleiben in der Vorschau ruhig
+  drawBorderPreview(border, settings.border, Math.round(img.w * d), Math.round(img.h * d), { ...settings, seed: 7 }, frameNo);
+  return img;
+}
+
+function nextFrameNo() {
+  if (state.prefs.roll !== 'off') return (state.roll?.count ?? 0) + 1;
+  return (state.photos.length % ROLL_LENGTH) + 1;
+}
+
 function layoutCam() {
   const crop = camCrop();
-  const key = `${crop.w}x${crop.h}|${innerWidth}x${innerHeight}`;
+  const s = state.settings;
+  const frameNo = nextFrameNo();
+  const key = `${crop.w}x${crop.h}|${innerWidth}x${innerHeight}|${s.border}|${s.film}|${frameNo}`;
   if (key === camLayoutKey) return;
   camLayoutKey = key;
-  camBox = fitBox($('viewfinder'), crop.w / crop.h);
-  const f = $('vfFrame');
-  f.style.width = `${camBox.w}px`;
-  f.style.height = `${camBox.h}px`;
+  camBox = layoutStage({
+    container: $('viewfinder'), frame: $('vfFrame'), image: $('vfImage'), border: $('vfBorder'),
+    cropW: crop.w, cropH: crop.h, settings: s, frameNo,
+  });
   layoutDateOverlay($('vfDate'), camBox);
 }
 
@@ -505,11 +696,25 @@ function syncCamToggles() {
   const s = state.settings;
   $('btnAspect').textContent = ASPECT_LABELS[s.aspect];
   setPressed($('btnDate'), s.date);
-  setPressed($('btnFrame'), s.frame);
+  setPressed($('btnFrame'), s.border !== 'none');
   setPressed($('btnLeak'), s.leak > 0);
+  setPressed($('btnTimer'), state.prefs.timer > 0);
+  $('btnTimer').querySelector('.badge')?.remove();
+  if (state.prefs.timer) {
+    const b = document.createElement('span');
+    b.className = 'badge';
+    b.textContent = state.prefs.timer;
+    $('btnTimer').appendChild(b);
+  }
   $('vfDate').hidden = !s.date;
   $('vfDate').textContent = dateStampText(Date.now());
-  $('vfFrameBadge').hidden = !s.frame;
+  const roll = $('vfRoll');
+  roll.hidden = state.prefs.roll === 'off';
+  if (!roll.hidden) {
+    const film = getFilm(state.roll?.film ?? s.film);
+    roll.innerHTML = `${film.name} · <b>${state.roll?.count ?? 0}</b>/${ROLL_LENGTH}`;
+  }
+  $('filmStripCam').classList.toggle('locked', rollLocked());
   const ev = $('vfEv');
   ev.hidden = Math.abs(s.ev) < 0.01;
   ev.textContent = `${s.ev > 0 ? '+' : ''}${s.ev.toFixed(1).replace('.', ',')} EV`;
@@ -525,10 +730,23 @@ $('btnAspect').addEventListener('click', () => {
   haptic();
 });
 $('btnDate').addEventListener('click', () => toggleSetting(state.settings, 'date', 'cam'));
-$('btnFrame').addEventListener('click', () => {
-  toggleSetting(state.settings, 'frame', 'cam');
-  if (state.settings.frame) toast('Der Filmrahmen wird beim Entwickeln hinzugefügt.');
+$('btnFrame').addEventListener('click', () => cycleBorder(state.settings, 'cam'));
+$('btnTimer').addEventListener('click', () => {
+  state.prefs.timer = TIMERS[(TIMERS.indexOf(state.prefs.timer) + 1) % TIMERS.length];
+  savePrefs();
+  haptic();
+  syncCamToggles();
+  toast(state.prefs.timer ? `Selbstauslöser: ${state.prefs.timer} Sekunden` : 'Selbstauslöser aus');
+  if (state.sheetFor === 'cam') buildSheet();
 });
+
+function cycleBorder(s, target) {
+  s.border = BORDERS[(BORDERS.indexOf(s.border) + 1) % BORDERS.length];
+  haptic();
+  onSettingsChanged(target);
+  if (state.sheetFor === target) buildSheet();
+  toast(BORDER_LABELS[s.border]);
+}
 $('btnLeak').addEventListener('click', () => toggleLeak(state.settings, 'cam'));
 $('btnAdjust').addEventListener('click', () => (state.sheetFor === 'cam' ? closeSheet() : openSheet('cam')));
 $('btnFlip').addEventListener('click', async () => {
@@ -600,13 +818,105 @@ function toggleLeak(s, target) {
 })();
 
 // Auslösen
-$('btnShutter').addEventListener('click', capture);
+$('btnShutter').addEventListener('click', shutter);
 document.addEventListener('keydown', (e) => {
   if (state.screen === 'cam' && (e.key === ' ' || e.key === 'Enter' || e.key === 'AudioVolumeUp')) {
     e.preventDefault();
-    capture();
+    shutter();
   }
 });
+
+// Selbstauslöser: Countdown im Sucher, erneutes Tippen bricht ab.
+let countdown = null;
+
+function shutter() {
+  if (countdown) {
+    cancelCountdown();
+    toast('Selbstauslöser abgebrochen');
+    return;
+  }
+  if (!state.prefs.timer) {
+    capture();
+    return;
+  }
+  if (!camRunning) return;
+  haptic();
+  let n = state.prefs.timer;
+  const el = $('vfCount');
+  const show = () => {
+    el.hidden = false;
+    el.textContent = n;
+    el.classList.remove('tick');
+    void el.offsetWidth;
+    el.classList.add('tick');
+    beep(n <= 2 ? 1320 : 880);
+  };
+  $('btnShutter').classList.add('counting');
+  show();
+  countdown = setInterval(() => {
+    n--;
+    if (n > 0) show();
+    else {
+      cancelCountdown();
+      capture();
+    }
+  }, 1000);
+}
+
+function cancelCountdown() {
+  clearInterval(countdown);
+  countdown = null;
+  $('vfCount').hidden = true;
+  $('btnShutter').classList.remove('counting');
+}
+
+function beep(freq) {
+  if (!state.prefs.sound) return;
+  try {
+    audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.15, audioCtx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.12);
+    o.connect(g).connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.13);
+  } catch {
+    /* kein Ton */
+  }
+}
+
+// Filmrolle: Film ist gesperrt, sobald das erste Bild belichtet ist.
+function rollLocked() {
+  return state.prefs.roll !== 'off' && (state.roll?.count ?? 0) > 0;
+}
+
+// Rolle beenden (voll oder zurückgespult); im Labor-Modus jetzt entwickeln.
+async function finishRoll(develop) {
+  const roll = state.roll;
+  state.roll = null;
+  saveRoll();
+  if (!roll) return;
+  await captureQueue;
+  if (develop) {
+    const all = await store.listPhotos();
+    const ids = all.filter((p) => p.rollId === roll.id && p.pending).map((p) => p.id);
+    if (ids.length) {
+      busy(`Rolle ${getFilm(roll.film).name} wird entwickelt …`);
+      await new Promise((r) => setTimeout(r, 1600));
+      await store.updatePhotos(ids, { pending: false });
+      await refreshPhotos();
+      busy(null);
+      toast(`Rolle entwickelt: ${ids.length} ${ids.length === 1 ? 'Bild' : 'Bilder'} in der Galerie.`, false, 3500);
+    }
+  } else if (roll.count >= ROLL_LENGTH) {
+    toast('Rolle voll – neuer Film eingelegt.', false, 3000);
+  }
+  syncCamToggles();
+  rebuildFilmStrips();
+}
 
 let captureQueue = Promise.resolve();
 
@@ -627,12 +937,25 @@ function capture() {
     return;
   }
   const settings = { ...state.settings, seed: randomSeed(), takenAt: Date.now() };
+  const meta = { id: store.newId(), created: Date.now(), settings, source: 'camera' };
+  let rollFull = false;
+  if (state.prefs.roll !== 'off') {
+    state.roll ??= { id: store.newId(), film: settings.film, count: 0 };
+    state.roll.count++;
+    saveRoll();
+    meta.rollId = state.roll.id;
+    meta.frameNo = state.roll.count;
+    meta.pending = state.prefs.roll === 'lab';
+    rollFull = state.roll.count >= ROLL_LENGTH;
+    syncCamToggles();
+    if (state.roll.count === 1) buildFilmStrip('cam');
+  }
   state.captures++;
   updateGalleryButton();
   captureQueue = captureQueue
     .then(async () => {
       const srcBlob = await canvasToBlob(src, 'image/jpeg', 0.92);
-      await developAndSave({ id: store.newId(), created: Date.now(), settings, source: 'camera' }, src, srcBlob);
+      await developAndSave(meta, src, srcBlob);
     })
     .catch((err) => {
       console.error(err);
@@ -643,6 +966,7 @@ function capture() {
       state.captures--;
       updateGalleryButton();
     });
+  if (rollFull) finishRoll(state.prefs.roll === 'lab');
 }
 
 // Entwickeln (synchron auf der GPU) und in der Galerie speichern.
@@ -666,7 +990,9 @@ async function developAndSave(meta, srcCanvas, srcBlob) {
 // Galerie
 
 async function refreshPhotos() {
-  state.photos = await store.listPhotos();
+  const all = await store.listPhotos();
+  state.photos = all.filter((p) => !p.pending);
+  state.pendingCount = all.length - state.photos.length;
   for (const url of state.thumbUrls.values()) URL.revokeObjectURL(url);
   state.thumbUrls.clear();
   for (const p of state.photos) if (p.thumb) state.thumbUrls.set(p.id, URL.createObjectURL(p.thumb));
@@ -873,12 +1199,8 @@ function openEditor(edit) {
   edit.settings.seed ??= randomSeed();
   state.edit = edit;
   show('editor');
-  buildFilmStrip($('filmStripEdit'), () => state.edit?.settings.film, (id) => {
-    state.edit.settings.film = id;
-    haptic();
-    onSettingsChanged('edit');
-    if (state.sheetFor === 'edit') buildSheet();
-  });
+  edit.layoutKey = '';
+  buildFilmStrip('edit');
   syncEditToggles();
   requestEditRender();
 }
@@ -902,11 +1224,18 @@ function renderEdit() {
   if (!e || state.screen !== 'editor' || !renderer) return;
   mountCanvas('glMountEdit');
   const crop = editCrop();
-  const box = fitBox($('editStage'), crop.w / crop.h);
-  const f = $('editFrame');
-  f.style.width = `${box.w}px`;
-  f.style.height = `${box.h}px`;
-  layoutDateOverlay($('edDate'), box);
+  const s = e.settings;
+  const frameNo = e.photo?.frameNo ?? nextFrameNo();
+  const key = `${crop.w}x${crop.h}|${innerWidth}x${innerHeight}|${s.border}|${s.film}|${frameNo}`;
+  if (key !== e.layoutKey) {
+    e.layoutKey = key;
+    e.box = layoutStage({
+      container: $('editStage'), frame: $('editFrame'), image: $('edImage'), border: $('edBorder'),
+      cropW: crop.w, cropH: crop.h, settings: s, frameNo,
+    });
+    layoutDateOverlay($('edDate'), e.box);
+  }
+  const box = e.box;
   if (e.previewDirty) {
     renderer.setSource(e.preview, e.preview.width, e.preview.height);
     e.previewDirty = false;
@@ -920,7 +1249,7 @@ function syncEditToggles() {
   if (!s) return;
   $('btnEdAspect').textContent = ASPECT_LABELS[s.aspect];
   setPressed($('btnEdDate'), s.date);
-  setPressed($('btnEdFrame'), s.frame);
+  setPressed($('btnEdFrame'), s.border !== 'none');
   setPressed($('btnEdLeak'), s.leak > 0);
   $('edDate').hidden = !s.date;
   $('edDate').textContent = dateStampText(s.takenAt ?? Date.now());
@@ -934,10 +1263,7 @@ $('btnEdAspect').addEventListener('click', () => {
   onSettingsChanged('edit');
 });
 $('btnEdDate').addEventListener('click', () => toggleSetting(state.edit.settings, 'date', 'edit'));
-$('btnEdFrame').addEventListener('click', () => {
-  toggleSetting(state.edit.settings, 'frame', 'edit');
-  if (state.edit.settings.frame) toast('Der Filmrahmen wird beim Entwickeln hinzugefügt.');
-});
+$('btnEdFrame').addEventListener('click', () => cycleBorder(state.edit.settings, 'edit'));
 $('btnEdLeak').addEventListener('click', () => toggleLeak(state.edit.settings, 'edit'));
 $('btnEdAdjust').addEventListener('click', () => (state.sheetFor === 'edit' ? closeSheet() : openSheet('edit')));
 
@@ -1030,6 +1356,7 @@ function show(name) {
   for (const id of ['cam', 'gallery', 'viewer', 'editor']) $(id).classList.toggle('active', id === name);
   if (name !== 'editor' && state.sheetFor === 'edit') closeSheet();
   if (name !== 'cam' && state.sheetFor === 'cam') closeSheet();
+  if (name !== 'cam' && countdown) cancelCountdown();
   if (name === 'cam') {
     if (!camRunning) startCamera();
     else {
@@ -1053,7 +1380,7 @@ function show(name) {
 // ---------------------------------------------------------------------------
 // Drehung der Bedienelemente bei Querformat
 
-const ROTATING = ['btnFlip', 'btnGallery', 'btnDate', 'btnFrame', 'btnLeak', 'btnAdjust', 'btnAspect'];
+const ROTATING = ['btnFlip', 'btnGallery', 'btnDate', 'btnFrame', 'btnLeak', 'btnTimer', 'btnAdjust', 'btnAspect'];
 function applyRotation(r) {
   const ui = screen.orientation?.angle ?? window.orientation ?? 0;
   let rel = (((r - ui) % 360) + 360) % 360;
@@ -1069,7 +1396,7 @@ camera.onRotation = applyRotation;
 
 function initIcons() {
   for (const [id, icon] of [
-    ['btnDate', 'date'], ['btnFrame', 'frame'], ['btnLeak', 'leak'], ['btnAdjust', 'adjust'], ['btnFlip', 'flip'],
+    ['btnDate', 'date'], ['btnFrame', 'frame'], ['btnLeak', 'leak'], ['btnTimer', 'timer'], ['btnAdjust', 'adjust'], ['btnFlip', 'flip'],
     ['btnGalleryBack', 'back'], ['btnViewerBack', 'back'], ['btnViewerShare', 'share'], ['btnViewerDelete', 'trash'],
     ['btnEdDate', 'date'], ['btnEdFrame', 'frame'], ['btnEdLeak', 'leak'], ['btnEdAdjust', 'adjust'], ['btnSheetClose', 'close'],
   ]) setIcon($(id), icon);
@@ -1077,12 +1404,8 @@ function initIcons() {
 
 function init() {
   initIcons();
-  buildFilmStrip($('filmStripCam'), () => state.settings.film, (id) => {
-    state.settings.film = id;
-    haptic();
-    onSettingsChanged('cam');
-    if (state.sheetFor === 'cam') buildSheet();
-  });
+  if (state.prefs.roll !== 'off' && state.roll?.count) state.settings.film = state.roll.film;
+  buildFilmStrip('cam');
   syncCamToggles();
   if (!renderer) {
     showCamMsg('Dieses Gerät unterstützt WebGL2 nicht – die Filmemulation kann nicht laufen.');

@@ -8,7 +8,7 @@
 // Koordinaten: vUV ist die Ausgabeposition (0..1, y nach unten). uSrcM bildet
 // sie auf die Quelle ab (Ausschnitt, Spiegelung).
 
-import { buildUniforms } from './model.js';
+import { buildUniforms, HL_KNEE, HL_MAX } from './model.js';
 
 const VERT = `#version 300 es
 in vec2 aPos;
@@ -28,6 +28,16 @@ out vec4 outColor;
 vec3 toLinear(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
 }
+// Lichter-Rekonstruktion (siehe model.js: expandHighlights)
+const float HL_KNEE = ${HL_KNEE.toFixed(6)};
+const float HL_C = ${(1 - (1 - HL_KNEE) / (HL_MAX - HL_KNEE)).toFixed(7)};
+vec3 expandHL(vec3 c) {
+  float m = max(c.r, max(c.g, c.b));
+  if (m <= HL_KNEE) return c;
+  float t = min((m - HL_KNEE) / (1.0 - HL_KNEE), 1.0);
+  float m2 = HL_KNEE + (1.0 - HL_KNEE) * t / (1.0 - HL_C * t);
+  return c * (m2 / m);
+}
 vec3 toSrgb(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
 }
@@ -40,7 +50,7 @@ uniform mat3 uSrcM;
 uniform float uGain;
 void main() {
   vec2 st = (uSrcM * vec3(vUV, 1.0)).xy;
-  vec3 c = toLinear(texture(uSrc, st).rgb) * uGain;
+  vec3 c = expandHL(toLinear(texture(uSrc, st).rgb)) * uGain;
   float Y = dot(c, vec3(0.2126, 0.7152, 0.0722));
   float w = clamp((Y - 0.45) / 0.55, 0.0, 1.0);
   outColor = vec4(c * w * w, 1.0);
@@ -145,7 +155,7 @@ vec3 leak(vec2 uv) {
 
 void main() {
   vec2 st = (uSrcM * vec3(vUV, 1.0)).xy;
-  vec3 c = toLinear(texture(uSrc, st).rgb) * uGain;
+  vec3 c = expandHL(toLinear(texture(uSrc, st).rgb)) * uGain;
 
   // Objektiv: natürliche Randabdunklung
   vec2 q = (vUV - 0.5) * uAspect;

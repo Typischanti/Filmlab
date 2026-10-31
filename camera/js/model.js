@@ -29,6 +29,10 @@ export const ASPECTS = {
 
 export const ASPECT_LABELS = { '3:2': '3:2', '16:9': '16:9', '2.39': '2.39:1', orig: 'Original' };
 
+// Rahmenarten des fertigen Bildes
+export const BORDERS = ['none', 'strip', 'print', 'instant'];
+export const BORDER_LABELS = { none: 'Ohne Rahmen', strip: 'Filmstreifen', print: 'Laborabzug', instant: 'Sofortbild' };
+
 export const DEFAULT_SETTINGS = Object.freeze({
   film: 'pastell400',
   aspect: '3:2',
@@ -48,7 +52,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   leak: 0,
   leakSeed: 1,
   date: false,
-  frame: false,
+  border: 'none',
 });
 
 // Regler: Bereich, Schritt, Anzeige. Die Werte sind Abweichungen vom Film
@@ -90,6 +94,9 @@ export function normalizeSettings(s) {
     }
     for (const k of ['seed', 'takenAt']) if (Number.isFinite(s[k])) out[k] = s[k];
   }
+  // ältere Fotos: frame: true -> Filmstreifen
+  if (s && s.border === undefined && s.frame === true) out.border = 'strip';
+  if (!BORDERS.includes(out.border)) out.border = 'none';
   if (!(out.aspect in ASPECTS)) out.aspect = DEFAULT_SETTINGS.aspect;
   for (const sl of SLIDERS) out[sl.key] = clamp(out[sl.key], sl.min, sl.max);
   return out;
@@ -164,18 +171,76 @@ function negDensity(u, g, lat) {
 }
 
 // ---------------------------------------------------------------------------
+// Lichter-Rekonstruktion: Das iPhone staucht helle Szenenteile in die
+// letzten Tonwerte vor Weiß. Diese Kompression wird hier umgekehrt, damit der
+// Film wieder echtes Szenenlicht bekommt – bis HL_MAX (≈ 4,5 Blenden über
+// Mittelgrau). Ob die Lichter dann weich auslaufen (Negativ) oder hart
+// ausfressen (Dia), entscheidet der Belichtungsumfang des Films.
+// Skaliert wird über den hellsten Kanal, damit Farbtöne erhalten bleiben.
+export const HL_KNEE = 0.55;
+export const HL_MAX = 4.0;
+const HL_C = 1 - (1 - HL_KNEE) / (HL_MAX - HL_KNEE);
+
+export function expandHighlights(c) {
+  const m = Math.max(c[0], c[1], c[2]);
+  if (m <= HL_KNEE) return c;
+  const t = Math.min((m - HL_KNEE) / (1 - HL_KNEE), 1);
+  const m2 = HL_KNEE + ((1 - HL_KNEE) * t) / (1 - HL_C * t);
+  return c.map((v) => (v * m2) / m);
+}
+
+// ---------------------------------------------------------------------------
+// Belichtungsumfang: Jeder Film hat angegeben, wie viele Blenden über
+// Mittelgrau seine Lichter Papierweiß erreichen (film.over). Daraus wird die
+// Weichheit des Papierfußes berechnet – lange Negativ-Lichter laufen weich
+// aus, Diafilm frisst früh und hart aus.
+const WHITE_TARGET = 0.95; // lineare Helligkeit, ab der Lichter als weiß gelten
+const toeCache = new Map();
+
+function filmToe(film) {
+  if (!film.over) return film.paper.toe;
+  if (toeCache.has(film.id)) return toeCache.get(film.id);
+  const L = 0.18 * Math.pow(2, film.over);
+  const lum = (t) => {
+    const U = buildFor({ ...film, paper: { ...film.paper, toe: t } }, normalizeSettings({ film: film.id, grain: 0 }), {});
+    const v = filmPixelLinear([L, L, L], U).map(srgbToLinear);
+    return (v[0] + v[1] + v[2]) / 3;
+  };
+  // größere Weichheit -> Lichter erreichen Weiß später
+  let lo = 0.02, hi = 1.5;
+  if (lum(lo) < WHITE_TARGET) {
+    toeCache.set(film.id, lo);
+    return lo;
+  }
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (lum(mid) >= WHITE_TARGET) lo = mid;
+    else hi = mid;
+  }
+  const t = (lo + hi) / 2;
+  toeCache.set(film.id, t);
+  return t;
+}
+
+// ---------------------------------------------------------------------------
 // Film + Einstellungen -> Parameter für Shader und Referenz.
 // ctx.shortSide: kurze Bildseite in Ausgabepixeln (für Korn/Halation).
 
 export function buildUniforms(settings, ctx = {}) {
   const s = normalizeSettings(settings);
   const film = getFilm(s.film);
+  return buildFor({ ...film, paper: { ...film.paper, toe: filmToe(film) } }, s, ctx);
+}
+
+function buildFor(film, s, ctx) {
   const shortSide = ctx.shortSide ?? 1000;
   const slide = film.type === 'slide';
 
   const sysG = film.gamma * Math.pow(2, s.contrast * 0.55);
   const layers = film.layers;
-  const wb = wbOffsets(film.temp + s.temp, film.tint + s.tint);
+  // Schwarzweiß: Temperatur/Tönung wirken als leichte Papiertonung
+  const wbScale = film.bw ? 0.35 : 1;
+  const wb = wbOffsets(film.temp + s.temp * wbScale, film.tint + s.tint * wbScale);
 
   const dmin = film.paper.dmin;
   const dmaxPaper = film.paper.dmax;
@@ -183,7 +248,8 @@ export function buildUniforms(settings, ctx = {}) {
   const U = {
     type: slide ? 1 : 0,
     gain: Math.pow(2, s.ev),
-    cross: normalizeRows(film.cross),
+    // S/W: alle Schichten sehen dieselbe spektrale Empfindlichkeit -> neutral
+    cross: film.bw ? normalizeRows([film.spectral, film.spectral, film.spectral]) : normalizeRows(film.cross),
     sat: Math.max(0, 1 + film.sat + s.saturation * 0.6),
     vib: film.vibrance ?? 0,
     dmin,
@@ -244,7 +310,12 @@ export function satGain(u, m, U) {
 // Referenz-Pixel: sRGB-Wert (0..1) -> sRGB-Ausgabe. noise: Kornrauschen je
 // Schicht, extra: zusätzliches lineares Licht (Halation, Lichtleck).
 export function filmPixel(rgb, U, noise = [0, 0, 0], extra = [0, 0, 0]) {
-  const c = rgb.map((v, k) => srgbToLinear(v) * U.gain + extra[k]);
+  const c = expandHighlights(rgb.map(srgbToLinear)).map((v, k) => v * U.gain + extra[k]);
+  return filmPixelLinear(c, U, noise);
+}
+
+// Wie filmPixel, aber mit linearem Szenenlicht als Eingabe.
+export function filmPixelLinear(c, U, noise = [0, 0, 0]) {
   const e = U.cross.map((row) => row[0] * c[0] + row[1] * c[1] + row[2] * c[2]);
   let u = e.map((v) => Math.log10(Math.max(v, E_FLOOR)) - LOG_MID);
   const m = (u[0] + u[1] + u[2]) / 3;

@@ -418,3 +418,55 @@ input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border-radius
   #cam .shutter-row { padding: 0 8px; }
   .edit-stage, .viewer-stage { min-height: 0; }
 }
+
+/* ---------- Rahmen-Vorschau, Selbstauslöser, Filmrolle ---------- */
+.vf-frame { background: transparent; border-radius: 0; }
+.vf-image { position: absolute; overflow: hidden; background: #0b0b0c; z-index: 1; }
+.vf-border { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; z-index: 2; }
+.vf-roll, .vf-ev, .vf-count { z-index: 3; }
+.vf-roll {
+  position: absolute; left: 8px; top: 8px;
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  background: rgba(0, 0, 0, 0.55); padding: 3px 8px; border-radius: 9px;
+  pointer-events: none;
+}
+.vf-roll b { color: var(--accent); }
+.vf-count {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  font-size: 110px; font-weight: 200; font-variant-numeric: tabular-nums;
+  color: #fff; text-shadow: 0 2px 30px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.vf-count.tick { animation: tick 0.9s ease-out; }
+@keyframes tick { 0% { transform: scale(1.25); opacity: 0.4; } 30% { opacity: 1; } 100% { transform: scale(1); opacity: 0.85; } }
+.icon-btn { position: relative; }
+.icon-btn .badge {
+  position: absolute; right: 2px; bottom: 3px;
+  font-size: 10px; font-weight: 800; line-height: 1;
+  background: var(--accent); color: var(--accent-ink);
+  border-radius: 6px; padding: 1px 3px;
+}
+.shutter.counting span { background: var(--danger); transform: scale(0.55); border-radius: 8px; }
+
+/* Filmauswahl: gesperrte Rolle, eigene Looks */
+.film-strip.locked .film-card[data-id]:not([aria-checked="true"]) { opacity: 0.35; }
+.film-card.look .film-meta { color: var(--accent); }
+.film-card.add {
+  display: grid; place-content: center; text-align: center;
+  border: 1.5px dashed rgba(255, 255, 255, 0.22); background: transparent;
+  color: var(--text-2); font-size: 12px; font-weight: 600;
+}
+.film-card.add b { display: block; font-size: 22px; font-weight: 300; line-height: 1; color: var(--text); }
+.strip-sep { flex: 0 0 1px; background: var(--line); margin: 6px 2px; }
+
+/* Auswahllisten im Regler-Blatt */
+.select-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 0; font-size: 14px; border-top: 1px solid var(--line);
+}
+.select-row select {
+  font: inherit; font-size: 14px; color: var(--text);
+  background: var(--bg-4); border: 0; border-radius: 9px; padding: 6px 10px;
+}
+.sheet-action { margin: 10px 0 4px; width: 100%; }

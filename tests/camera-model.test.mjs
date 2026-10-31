@@ -99,3 +99,31 @@ test('Dynamik hebt zurückhaltende Farben stärker an als kräftige', () => {
   const g = filmPixel([0.4613, 0.4613, 0.4613], buildUniforms({ film: 'alltag400', temp: -0.3, tint: 0.08 }));
   assert.ok(sat(g) < 0.02);
 });
+
+test('Belichtungsumfang: Dia frisst früh aus, Negativ behält Zeichnung in den Lichtern', async () => {
+  const { filmPixelLinear, srgbToLinear: lin } = await import('../camera/js/model.js');
+  const out = (film, stops) => {
+    const L = 0.18 * 2 ** stops;
+    const v = filmPixelLinear([L, L, L], buildUniforms({ film, grain: 0 })).map(lin);
+    return (v[0] + v[1] + v[2]) / 3;
+  };
+  // Jeder Film erreicht Weiß ungefähr dort, wo sein Umfang endet
+  for (const f of FILMS) {
+    if (f.over > 4.5) continue;
+    assert.ok(Math.abs(out(f.id, f.over) - 0.95) < 0.01, `${f.id} bei +${f.over}`);
+  }
+  assert.ok(out('chrom50', 2.5) > 0.98, 'Dia bei +2,5 Blenden ausgefressen');
+  assert.ok(out('pastell400', 3) < 0.8, 'Negativ bei +3 Blenden noch mit Zeichnung');
+  assert.ok(out('kino500t', 4) < out('vivid100', 4), 'Kinofilm weicher als Vivid');
+  // Mittelgrau bleibt bei allen Filmen erhalten
+  for (const f of FILMS) assert.ok(Math.abs(out(f.id, 0) - 0.18) < 0.02, `${f.id} Mittelgrau`);
+});
+
+test('Lichter-Rekonstruktion: Mitteltöne unverändert, Weiß wird zu hellem Szenenlicht', async () => {
+  const { expandHighlights, HL_MAX } = await import('../camera/js/model.js');
+  assert.deepEqual(expandHighlights([0.3, 0.2, 0.1]), [0.3, 0.2, 0.1]);
+  const w = expandHighlights([1, 1, 1]);
+  assert.ok(Math.abs(w[0] - HL_MAX) < 1e-9);
+  const c = expandHighlights([0.9, 0.45, 0.3]);
+  assert.ok(c[0] > 0.9 && Math.abs(c[1] / c[0] - 0.5) < 1e-9, 'Farbton bleibt');
+});

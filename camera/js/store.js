@@ -83,6 +83,17 @@ export async function getBlob(id, kind) {
   return unpack(v);
 }
 
+// Metadaten mehrerer Fotos ändern (z. B. Filmrolle entwickelt), Bilder bleiben.
+export async function updatePhotos(ids, patch) {
+  await tx(['photos'], 'readwrite', async (t) => {
+    const os = t.objectStore('photos');
+    for (const id of ids) {
+      const rec = await reqP(os.get(id));
+      if (rec) os.put({ ...rec, ...patch });
+    }
+  });
+}
+
 export async function deletePhotos(ids) {
   await tx(['photos', 'blobs'], 'readwrite', (t) => {
     for (const id of ids) {
