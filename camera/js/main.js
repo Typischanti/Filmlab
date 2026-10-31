@@ -9,8 +9,9 @@ import { Camera } from './camera.js';
 import * as store from './store.js';
 import {
   loadImage, imageToCanvas, canvasToBlob, scaledCanvas, exifDate, developToCanvas,
-  photoFileName, shareFiles, borderLayout, drawBorderPreview,
+  photoFileName, shareFiles, borderLayout, drawBorderPreview, drawDateStamp,
 } from './develop.js';
+import { VideoRecorder, canRecordVideo, videoExtension } from './recorder.js';
 import { ICONS, setIcon } from './icons.js';
 import { ensureLut, lutReady, preloadLuts } from './lut.js';
 
@@ -43,7 +44,8 @@ function writeJson(key, value) {
 
 const state = {
   settings: normalizeSettings(readJson('filmkamera.settings', null)),
-  prefs: { quality: 'high', sound: true, motion: true, timer: 0, roll: 'off', ...readJson('filmkamera.prefs', {}) },
+  prefs: { quality: 'high', sound: true, motion: true, timer: 0, roll: 'off', mode: 'photo', videoAudio: true, ...readJson('filmkamera.prefs', {}) },
+  recording: null,
   looks: readJson('filmkamera.looks', []),
   roll: readJson('filmkamera.roll', null), // { id, film, count }
   pendingCount: 0,
@@ -407,6 +409,7 @@ function buildSheet() {
       }, true),
     );
     body.appendChild(makeSwitch('Auslöseton', () => state.prefs.sound, (v) => { state.prefs.sound = v; savePrefs(); }, true));
+    body.appendChild(makeSwitch('Ton bei Videos (Mikrofon)', () => state.prefs.videoAudio, (v) => { state.prefs.videoAudio = v; savePrefs(); }, true));
     body.appendChild(
       makeSelect('Selbstauslöser', TIMERS.map((t) => [String(t), t ? `${t} Sekunden` : 'Aus']), () => String(state.prefs.timer), (v) => {
         state.prefs.timer = Number(v);
@@ -667,7 +670,8 @@ function layoutStage({ container, frame, image, border, cropW, cropH, settings, 
   image.style.height = `${img.h}px`;
   const d = dpr();
   // fester Startwert: Staub und Struktur des Rahmens bleiben in der Vorschau ruhig
-  drawBorderPreview(border, settings.border, Math.round(img.w * d), Math.round(img.h * d), { ...settings, seed: 7 }, frameNo);
+  img.px = { w: Math.round(img.w * d), h: Math.round(img.h * d) };
+  img.L = drawBorderPreview(border, settings.border, img.px.w, img.px.h, { ...settings, seed: 7 }, frameNo);
   return img;
 }
 
@@ -715,6 +719,7 @@ function camFrame() {
         mirror: camera.mirrored,
         seed: ++frameCounter * 7919,
       });
+      if (state.recording) composeRecordingFrame();
     } catch (err) {
       console.error(err);
     }
@@ -745,6 +750,15 @@ function syncCamToggles() {
     roll.innerHTML = `${film.name} · <b>${state.roll?.count ?? 0}</b>/${ROLL_LENGTH}`;
   }
   $('filmStripCam').classList.toggle('locked', rollLocked());
+  const video = state.prefs.mode === 'video';
+  for (const b of $('modeSwitch').children) b.setAttribute('aria-checked', b.dataset.mode === state.prefs.mode ? 'true' : 'false');
+  $('modeSwitch').classList.toggle('locked', !!state.recording);
+  $('btnShutter').classList.toggle('video', video);
+  $('btnShutter').classList.toggle('recording', !!state.recording);
+  $('btnShutter').setAttribute('aria-label', video ? (state.recording ? 'Aufnahme beenden' : 'Aufnahme starten') : 'Auslösen');
+  $('vfRec').hidden = !state.recording;
+  $('btnGallery').disabled = !!state.recording;
+  $('btnFlip').disabled = !!state.recording;
   const ev = $('vfEv');
   ev.hidden = Math.abs(s.ev) < 0.01;
   ev.textContent = `${s.ev > 0 ? '+' : ''}${s.ev.toFixed(1).replace('.', ',')} EV`;
@@ -761,6 +775,19 @@ $('btnAspect').addEventListener('click', () => {
 });
 $('btnDate').addEventListener('click', () => toggleSetting(state.settings, 'date', 'cam'));
 $('btnFrame').addEventListener('click', () => cycleBorder(state.settings, 'cam'));
+for (const b of $('modeSwitch').children) {
+  b.addEventListener('click', () => {
+    if (state.recording || state.prefs.mode === b.dataset.mode) return;
+    if (b.dataset.mode === 'video' && !canRecordVideo()) {
+      toast('Videoaufnahme wird von diesem Browser nicht unterstützt.', true);
+      return;
+    }
+    state.prefs.mode = b.dataset.mode;
+    savePrefs();
+    haptic();
+    syncCamToggles();
+  });
+}
 $('btnTimer').addEventListener('click', () => {
   state.prefs.timer = TIMERS[(TIMERS.indexOf(state.prefs.timer) + 1) % TIMERS.length];
   savePrefs();
@@ -865,8 +892,13 @@ function shutter() {
     toast('Selbstauslöser abgebrochen');
     return;
   }
+  if (state.prefs.mode === 'video' && state.recording) {
+    stopRecording();
+    return;
+  }
+  const fire = () => (state.prefs.mode === 'video' ? startRecording() : capture());
   if (!state.prefs.timer) {
-    capture();
+    fire();
     return;
   }
   if (!camRunning) return;
@@ -888,7 +920,7 @@ function shutter() {
     if (n > 0) show();
     else {
       cancelCountdown();
-      capture();
+      fire();
     }
   }, 1000);
 }
@@ -916,6 +948,132 @@ function beep(freq) {
   } catch {
     /* kein Ton */
   }
+}
+
+// ---------------------------------------------------------------------------
+// Video: Der Sucher samt Rahmen und Datum wird in eine eigene Leinwand
+// zusammengesetzt und von dort aufgenommen. Lage (Hoch/Quer) wird beim Start
+// festgelegt.
+
+const MAX_VIDEO_SECONDS = 180;
+
+async function startRecording() {
+  if (!camRunning || !renderer || state.recording) return;
+  if (!canRecordVideo()) {
+    toast('Videoaufnahme wird von diesem Browser nicht unterstützt.', true);
+    return;
+  }
+  const geo = camBox?.L ? camBox : null;
+  if (!geo) return;
+  const L = geo.L;
+  const rot = camera.captureRotation();
+  const swap = rot === 90 || rot === 270;
+  const even = (v) => Math.max(2, Math.round(v / 2) * 2);
+  const W = even(L.w), H = even(L.h);
+  const canvas = document.createElement('canvas');
+  canvas.width = swap ? H : W;
+  canvas.height = swap ? W : H;
+  const ctx = canvas.getContext('2d');
+  // Rahmen und Datum einmal vorbereiten (ändern sich während der Aufnahme nicht)
+  const overlay = document.createElement('canvas');
+  overlay.width = W;
+  overlay.height = H;
+  const octx = overlay.getContext('2d');
+  if (state.settings.border !== 'none') octx.drawImage($('vfBorder'), 0, 0, W, H);
+  if (state.settings.date) drawDateStamp(octx, L.ix, L.iy, geo.px.w, geo.px.h, Date.now());
+  const rec = new VideoRecorder();
+  state.recording = { rec, canvas, ctx, overlay, rot, W, H, L, px: geo.px, starting: true, settings: { ...state.settings, takenAt: Date.now() } };
+  composeRecordingFrame();
+  try {
+    await rec.start(canvas, { audio: state.prefs.videoAudio });
+  } catch (err) {
+    state.recording = null;
+    toast(`Aufnahme fehlgeschlagen: ${err.message || err}`, true, 5000);
+    return;
+  }
+  if (rec.micDenied) toast('Kein Mikrofonzugriff – Video ohne Ton.');
+  state.recording.starting = false;
+  haptic();
+  beep(1046);
+  syncCamToggles();
+  const badge = $('vfRec');
+  const tick = () => {
+    const r = state.recording;
+    if (!r) return;
+    const t = Math.floor(r.rec.elapsed);
+    badge.querySelector('span').textContent = `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+    if (t >= MAX_VIDEO_SECONDS) stopRecording();
+  };
+  tick();
+  state.recording.timer = setInterval(tick, 250);
+}
+
+function composeRecordingFrame() {
+  const r = state.recording;
+  if (!r) return;
+  const { ctx, canvas, rot, W, H, L, px } = r;
+  ctx.save();
+  if (rot) {
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((-rot * Math.PI) / 180);
+    ctx.translate(-W / 2, -H / 2);
+  }
+  if (L.kind === 'none') ctx.drawImage(glCanvas, 0, 0, W, H);
+  else {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(glCanvas, L.ix, L.iy, px.w, px.h);
+  }
+  ctx.drawImage(r.overlay, 0, 0);
+  ctx.restore();
+}
+
+async function stopRecording() {
+  const r = state.recording;
+  if (!r || r.starting || r.stopping) return;
+  r.stopping = true;
+  clearInterval(r.timer);
+  haptic();
+  beep(784);
+  const thumbCanvas = scaledCanvas(r.canvas, 480);
+  let res;
+  try {
+    res = await r.rec.stop();
+  } catch (err) {
+    state.recording = null;
+    syncCamToggles();
+    toast(`Video konnte nicht gespeichert werden: ${err.message || err}`, true, 5000);
+    return;
+  }
+  state.recording = null;
+  syncCamToggles();
+  if (!res.blob.size) {
+    toast('Video ist leer – bitte erneut versuchen.', true);
+    return;
+  }
+  state.captures++;
+  updateGalleryButton();
+  try {
+    const thumb = await canvasToBlob(thumbCanvas, 'image/jpeg', 0.82);
+    const meta = {
+      id: store.newId(), created: Date.now(), kind: 'video', mime: res.mime, duration: res.duration,
+      settings: r.settings, source: 'camera', w: r.canvas.width, h: r.canvas.height,
+    };
+    await store.savePhoto(meta, { out: res.blob, thumb });
+    await refreshPhotos();
+    toast(`Video gesichert (${Math.round(res.duration)} s).`);
+  } catch (err) {
+    console.error(err);
+    toast(`Video konnte nicht gespeichert werden: ${err.message || err}`, true, 5000);
+  } finally {
+    state.captures--;
+    updateGalleryButton();
+  }
+}
+
+function fmtDuration(sec) {
+  const t = Math.max(0, Math.round(sec || 0));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 }
 
 // Filmrolle: Film ist gesperrt, sobald das erste Bild belichtet ist.
@@ -1060,6 +1218,12 @@ function renderGrid() {
     const check = document.createElement('span');
     check.className = 'check';
     cell.append(img, tag, check);
+    if (p.kind === 'video') {
+      const v = document.createElement('span');
+      v.className = 'video-tag';
+      v.textContent = `▶ ${fmtDuration(p.duration)}`;
+      cell.appendChild(v);
+    }
     cell.addEventListener('click', () => {
       if (state.selecting) toggleSelect(p.id, cell);
       else openViewer(i);
@@ -1079,7 +1243,7 @@ function toggleSelect(id, cell) {
     store.getBlob(id, 'out').then((b) => {
       if (b && state.selected.has(id)) {
         const p = state.photos.find((x) => x.id === id);
-        state.selBlobs.set(id, new File([b], photoFileName(p?.settings?.takenAt ?? p?.created ?? Date.now()), { type: 'image/jpeg' }));
+        state.selBlobs.set(id, fileForPhoto(p, b));
         updateSelectBar();
       }
     });
@@ -1138,6 +1302,12 @@ async function openViewer(i) {
   await loadViewer();
 }
 
+function fileForPhoto(p, blob) {
+  const ts = p?.settings?.takenAt ?? p?.created ?? Date.now();
+  if (p?.kind === 'video') return new File([blob], photoFileName(ts, 0, videoExtension(p.mime || blob.type)), { type: blob.type || p.mime || 'video/mp4' });
+  return new File([blob], photoFileName(ts), { type: 'image/jpeg' });
+}
+
 async function loadViewer() {
   const p = state.photos[state.viewerIndex];
   if (!p) {
@@ -1148,6 +1318,12 @@ async function loadViewer() {
   const d = new Date(p.settings?.takenAt ?? p.created);
   $('viewerTitle').innerHTML = `${film.name}<small>${d.toLocaleDateString('de-DE')} · ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</small>`;
   const img = $('viewerImg');
+  const vid = $('viewerVideo');
+  const isVideo = p.kind === 'video';
+  vid.pause();
+  vid.hidden = !isVideo;
+  img.hidden = isVideo;
+  $('btnViewerEdit').hidden = isVideo;
   img.style.opacity = '0.4';
   const thumb = state.thumbUrls.get(p.id);
   if (thumb) img.src = thumb;
@@ -1156,12 +1332,20 @@ async function loadViewer() {
   if (state.photos[state.viewerIndex]?.id !== p.id) return;
   if (viewerUrl) URL.revokeObjectURL(viewerUrl);
   viewerUrl = blob ? URL.createObjectURL(blob) : null;
-  if (viewerUrl) img.src = viewerUrl;
+  if (viewerUrl) {
+    if (isVideo) {
+      vid.poster = thumb || '';
+      vid.src = viewerUrl;
+    } else img.src = viewerUrl;
+  }
   img.style.opacity = '1';
-  state.viewerFile = blob ? new File([blob], photoFileName(p.settings?.takenAt ?? p.created), { type: 'image/jpeg' }) : null;
+  state.viewerFile = blob ? fileForPhoto(p, blob) : null;
 }
 
-$('btnViewerBack').addEventListener('click', () => show('gallery'));
+$('btnViewerBack').addEventListener('click', () => {
+  $('viewerVideo').pause();
+  show('gallery');
+});
 $('btnViewerShare').addEventListener('click', async () => {
   if (!state.viewerFile) return;
   try {
@@ -1388,6 +1572,7 @@ function show(name) {
   if (name !== 'editor' && state.sheetFor === 'edit') closeSheet();
   if (name !== 'cam' && state.sheetFor === 'cam') closeSheet();
   if (name !== 'cam' && countdown) cancelCountdown();
+  if (name !== 'cam' && state.recording) stopRecording();
   if (name === 'cam') {
     if (!camRunning) startCamera();
     else {
@@ -1461,7 +1646,10 @@ function init() {
     applyRotation(camera.deviceRot);
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopCamera();
+    if (document.hidden) {
+      if (state.recording) stopRecording();
+      stopCamera();
+    }
     else if (state.screen === 'cam') startCamera();
   });
 

@@ -590,10 +590,10 @@ export function drawDateStamp(ctx, ix, iy, w, h, ts) {
 // ---------------------------------------------------------------------------
 // Teilen / Sichern
 
-export function photoFileName(ts, i = 0) {
+export function photoFileName(ts, i = 0, ext = '.jpg') {
   const d = new Date(ts);
   const p = (n) => String(n).padStart(2, '0');
-  return `Filmkamera_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}${i ? `_${i}` : ''}.jpg`;
+  return `Filmkamera_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}${i ? `_${i}` : ''}${ext}`;
 }
 
 export function canShareFiles(files) {
