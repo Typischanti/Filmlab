@@ -269,7 +269,7 @@ function frameStyle(film) {
     // S/W-Negativ: klarer Träger wird im Positiv schwarz, Randbelichtung hellgrau
     return { base: [10, 10, 10], holes: 'dark', text: '#e9e7e2', glow: 'rgba(255,255,255,0.3)', fog: 'rgba(70,70,70,0.18)', dust: true };
   }
-  if (film.type === 'slide') {
+  if (film.type === 'slide' || film.slide) {
     return { base: [7, 6, 9], holes: 'light', text: '#f3e6bd', glow: 'rgba(255,236,190,0.45)', fog: 'rgba(70,45,30,0.0)', dust: false };
   }
   if (film.process === 'ECN-2') {

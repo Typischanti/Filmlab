@@ -229,7 +229,105 @@ function filmToe(film) {
 export function buildUniforms(settings, ctx = {}) {
   const s = normalizeSettings(settings);
   const film = getFilm(s.film);
+  if (film.type === 'lut') return buildLut(film, s, ctx);
   return buildFor({ ...film, paper: { ...film.paper, toe: filmToe(film) } }, s, ctx);
+}
+
+// ---------------------------------------------------------------------------
+// Spektrale Filme: Die ganze Kette (Spektrum, Film, Abzug, Betrachtung) steckt
+// in einer vorab berechneten 3D-LUT (tools/spectral). Regler, Korn und
+// Effekte wirken wie beim analytischen Modell im Belichtungsraum davor.
+
+const LUTS = new Map();
+
+export function registerLut(id, lut) {
+  LUTS.set(id, lut); // { size, min, max, data: Uint8Array (sRGB, Rot zuerst) }
+}
+
+export function getLut(id) {
+  return LUTS.get(id) ?? null;
+}
+
+function buildLut(film, s, ctx) {
+  const shortSide = ctx.shortSide ?? 1000;
+  const lut = LUTS.get(film.lut);
+  const cellPx = film.grain.size * s.grainSize * shortSide;
+  return {
+    type: 2,
+    lut: film.lut,
+    lutMin: lut?.min ?? -3.6,
+    lutMax: lut?.max ?? 2.1,
+    lutSize: lut?.size ?? 33,
+    gain: Math.pow(2, s.ev),
+    cross: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+    sat: Math.max(0, 1 + s.saturation * 0.6),
+    vib: 0,
+    contrast: Math.pow(2, s.contrast * 0.55),
+    // Temperatur/Tönung wie ein Farbfilter vor dem Objektiv
+    wbShift: wbOffsets(s.temp, s.tint).map((v) => -v),
+    highlights: s.highlights,
+    fade: s.fade,
+    grainCell: Math.max(1, cellPx),
+    grainAmp: film.grain.amount * s.grain * Math.min(1, cellPx) * Math.sqrt(Math.max(1, s.grainSize)),
+    grainColor: film.grain.color,
+    halation: film.halation.amount * s.halation,
+    halationRadius: film.halation.radius * s.halationRadius,
+    halationTint: film.halation.tint,
+    bloom: film.bloom + s.bloom * 0.6,
+    vignette: s.vignette,
+    leaks: s.leak > 0 ? makeLeaks(s.leakSeed, s.leak) : [],
+    seed: (s.seed ?? 0) >>> 0,
+    // vom analytischen Modell nicht genutzt
+    negG: [0, 0, 0], lat: 0, printer: [0, 0, 0], lineG: [0, 0, 0], offset: [0, 0, 0],
+    dmid: 0, dmin: 0, dmax: 1, toe: 0.1, shoulder: 0.1, rk: 0, dye: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+  };
+}
+
+// Belichtungsraum vor der LUT: Sättigung, Kontrast, Filter, Lichter, Korn
+export function lutInput(u, U, noise = [0, 0, 0]) {
+  const m = (u[0] + u[1] + u[2]) / 3;
+  return u.map((v, k) => {
+    let x = (m + (v - m) * U.sat) * U.contrast + U.wbShift[k];
+    const h = Math.min(Math.max(x / 1.5, 0), 1);
+    x += U.highlights * 0.3 * h * h;
+    // Korn als Dichteschwankung im Negativ, umgerechnet in Belichtung
+    x += (U.grainAmp / NEG_GAMMA) * noise[k] * (0.35 + Math.sqrt(Math.max(NEG_GAMMA * (x + 2), 0)));
+    return x;
+  });
+}
+
+// Tetraedrische Interpolation: entlang der Grauachse nur graue Stützstellen,
+// damit Neutrales neutral bleibt (trilinear würde farbige Nachbarn mischen).
+export function lutLookup(lut, t) {
+  const N = lut.size, d = lut.data;
+  const f = t.map((v) => Math.min(Math.max((v - lut.min) / (lut.max - lut.min), 0), 1) * (N - 1));
+  const i = f.map((v) => Math.min(N - 2, Math.floor(v)));
+  const [fx, fy, fz] = f.map((v, k) => v - i[k]);
+  const at = (dx, dy, dz) => {
+    const o = (((i[2] + dz) * N + (i[1] + dy)) * N + (i[0] + dx)) * 3;
+    return [d[o] / 255, d[o + 1] / 255, d[o + 2] / 255];
+  };
+  const c000 = at(0, 0, 0), c111 = at(1, 1, 1);
+  let a, b, wa, wb, wc;
+  if (fx >= fy) {
+    if (fy >= fz) [a, b, wa, wb, wc] = [at(1, 0, 0), at(1, 1, 0), fx, fy, fz];
+    else if (fx >= fz) [a, b, wa, wb, wc] = [at(1, 0, 0), at(1, 0, 1), fx, fz, fy];
+    else [a, b, wa, wb, wc] = [at(0, 0, 1), at(1, 0, 1), fz, fx, fy];
+  } else if (fz >= fy) [a, b, wa, wb, wc] = [at(0, 0, 1), at(0, 1, 1), fz, fy, fx];
+  else if (fz >= fx) [a, b, wa, wb, wc] = [at(0, 1, 0), at(0, 1, 1), fy, fz, fx];
+  else [a, b, wa, wb, wc] = [at(0, 1, 0), at(1, 1, 0), fy, fx, fz];
+  return [0, 1, 2].map((k) => c000[k] + wa * (a[k] - c000[k]) + wb * (b[k] - a[k]) + wc * (c111[k] - b[k]));
+}
+
+function lutPixel(c, U, noise) {
+  const lut = LUTS.get(U.lut);
+  if (!lut) throw new Error(`LUT ${U.lut} nicht geladen`);
+  const u = c.map((v) => Math.log10(Math.max(v, E_FLOOR)) - LOG_MID);
+  const o = lutLookup(lut, lutInput(u, U, noise));
+  return o.map((v) => {
+    const lin = srgbToLinear(v);
+    return linearToSrgb(clamp(lin * (1 - 0.1 * U.fade) + 0.1 * U.fade, 0, 1));
+  });
 }
 
 function buildFor(film, s, ctx) {
@@ -316,6 +414,7 @@ export function filmPixel(rgb, U, noise = [0, 0, 0], extra = [0, 0, 0]) {
 
 // Wie filmPixel, aber mit linearem Szenenlicht als Eingabe.
 export function filmPixelLinear(c, U, noise = [0, 0, 0]) {
+  if (U.type === 2) return lutPixel(c, U, noise);
   const e = U.cross.map((row) => row[0] * c[0] + row[1] * c[1] + row[2] * c[2]);
   let u = e.map((v) => Math.log10(Math.max(v, E_FLOOR)) - LOG_MID);
   const m = (u[0] + u[1] + u[2]) / 3;

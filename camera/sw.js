@@ -1,7 +1,7 @@
 // Service Worker: App offline verfügbar machen. Netzwerk zuerst (damit
 // Aktualisierungen sofort ankommen), bei Funkloch aus dem Zwischenspeicher.
 
-const CACHE = 'filmkamera-v1';
+const CACHE = 'filmkamera-v2';
 const FILES = [
   './',
   'index.html',
@@ -15,6 +15,8 @@ const FILES = [
   'js/store.js',
   'js/develop.js',
   'js/icons.js',
+  'js/lut.js',
+  'luts/index.json',
   'icons/icon-180.png',
   'icons/icon-192.png',
   'icons/icon-512.png',

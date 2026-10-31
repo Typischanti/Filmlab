@@ -12,6 +12,7 @@ import {
   photoFileName, shareFiles, borderLayout, drawBorderPreview,
 } from './develop.js';
 import { ICONS, setIcon } from './icons.js';
+import { ensureLut, lutReady, preloadLuts } from './lut.js';
 
 const $ = (id) => document.getElementById(id);
 const CAM_ASPECTS = ['3:2', '16:9', '2.39'];
@@ -88,6 +89,18 @@ try {
   renderer = new FilmRenderer(glCanvas);
 } catch (err) {
   console.error(err);
+}
+
+// Spektrale Filme brauchen ihre LUT; bis sie geladen ist, bleibt das letzte Bild stehen.
+function filmReady(settings) {
+  const film = getFilm(settings.film);
+  if (!renderer || lutReady(film, renderer)) return true;
+  ensureLut(film, renderer)
+    .then(() => {
+      if (state.screen === 'editor') requestEditRender();
+    })
+    .catch((err) => toast(`Film konnte nicht geladen werden: ${err.message || err}`, true));
+  return false;
 }
 
 function mountCanvas(id) {
@@ -186,13 +199,21 @@ function stripFor(target) {
 function buildFilmStrip(target) {
   const container = stripFor(target);
   container.innerHTML = '';
+  let lastGroup = null;
   for (const f of FILMS) {
+    const spectral = f.type === 'lut';
+    if (lastGroup !== null && lastGroup !== spectral) {
+      const sep = document.createElement('div');
+      sep.className = 'strip-sep';
+      container.appendChild(sep);
+    }
+    lastGroup = spectral;
     const b = document.createElement('button');
     b.className = 'film-card';
     b.dataset.id = f.id;
     b.setAttribute('role', 'radio');
     b.innerHTML = `<div class="film-swatch" style="background:linear-gradient(90deg,${f.swatch.join(',')})"></div>
-      <div class="film-name">${f.name}</div><div class="film-meta">${f.group}</div>`;
+      <div class="film-name">${f.name}</div><div class="film-meta">${spectral ? `${f.process} · spektral` : f.group}</div>`;
     b.addEventListener('click', () => pickFilm(target, f.id));
     container.appendChild(b);
   }
@@ -338,6 +359,15 @@ function buildSheet() {
   const film = getFilm(s.film);
   $('sheetFilm').textContent = `${film.name} · ${film.process}`;
   $('sheetFilmDesc').textContent = film.desc;
+  if (film.type === 'lut') {
+    const a = document.createElement('a');
+    a.href = 'https://github.com/andreavolpato/spektrafilm';
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.className = 'credit';
+    a.textContent = 'Spektral berechnet aus Messdaten von spektrafilm (Andrea Volpato, CC BY-SA 4.0)';
+    $('sheetFilmDesc').append(document.createElement('br'), a);
+  }
   const body = $('sheetBody');
   body.innerHTML = '';
   let group = '';
@@ -675,7 +705,7 @@ function scheduleCamFrame() {
 
 function camFrame() {
   if (!camRunning || state.screen !== 'cam' || document.hidden) return;
-  if (renderer && camera.width) {
+  if (renderer && camera.width && filmReady(state.settings)) {
     mountCanvas('glMountCam');
     layoutCam();
     try {
@@ -972,6 +1002,7 @@ function capture() {
 // Entwickeln (synchron auf der GPU) und in der Galerie speichern.
 async function developAndSave(meta, srcCanvas, srcBlob) {
   const settings = meta.settings;
+  await ensureLut(getFilm(settings.film), renderer);
   const frameNo = meta.frameNo ?? (state.photos.length % 36) + 1;
   renderer.setSource(srcCanvas, srcCanvas.width, srcCanvas.height);
   const canvas = developToCanvas(renderer, srcCanvas.width, srcCanvas.height, settings, { frameNo });
@@ -1221,7 +1252,7 @@ function requestEditRender() {
 
 function renderEdit() {
   const e = state.edit;
-  if (!e || state.screen !== 'editor' || !renderer) return;
+  if (!e || state.screen !== 'editor' || !renderer || !filmReady(e.settings)) return;
   mountCanvas('glMountEdit');
   const crop = editCrop();
   const s = e.settings;
@@ -1414,6 +1445,7 @@ function init() {
     startCamera();
   }
   refreshPhotos().catch((err) => console.error(err));
+  if (renderer) setTimeout(() => preloadLuts(renderer), 1500);
   store.requestPersistence();
 
   // Lagesensor-Erlaubnis bei der ersten Berührung erfragen (iOS-Vorgabe)

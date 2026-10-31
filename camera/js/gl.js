@@ -105,6 +105,15 @@ uniform vec2 uAspect;
 uniform int uLeakN;
 uniform vec4 uLeakA[3];
 uniform vec4 uLeakC[3];
+// spektrale Filme: 3D-LUT (siehe model.js: buildLut / lutInput)
+uniform highp sampler3D uLut;
+uniform float uLutMin;
+uniform float uLutMax;
+uniform float uLutSize;
+uniform float uContrastU;
+uniform vec3 uWbShift;
+uniform float uHl;
+uniform float uFade;
 
 const float LOG_MID = -0.7447275;
 
@@ -135,6 +144,27 @@ float grain1(vec2 p, uint ch) {
   // zwei gegeneinander gedrehte Oktaven gegen Rasterartefakte
   vec2 q = mat2(0.8, 0.6, -0.6, 0.8) * p * 1.93 + 37.1;
   return (vnoise(p, ch) + 0.55 * vnoise(q, ch + 7u)) * 2.2;
+}
+
+// Tetraedrische LUT-Interpolation (siehe model.js: lutLookup)
+vec3 lutAt(ivec3 p) { return texelFetch(uLut, p, 0).rgb; }
+vec3 lutTetra(vec3 x) {
+  float n1 = uLutSize - 1.0;
+  vec3 f = clamp((x - uLutMin) / (uLutMax - uLutMin), 0.0, 1.0) * n1;
+  vec3 i = min(floor(f), vec3(n1 - 1.0));
+  vec3 w = f - i;
+  ivec3 p = ivec3(i);
+  vec3 c000 = lutAt(p), c111 = lutAt(p + ivec3(1));
+  vec3 a, b;
+  float wa, wb, wc;
+  if (w.x >= w.y) {
+    if (w.y >= w.z) { a = lutAt(p + ivec3(1, 0, 0)); b = lutAt(p + ivec3(1, 1, 0)); wa = w.x; wb = w.y; wc = w.z; }
+    else if (w.x >= w.z) { a = lutAt(p + ivec3(1, 0, 0)); b = lutAt(p + ivec3(1, 0, 1)); wa = w.x; wb = w.z; wc = w.y; }
+    else { a = lutAt(p + ivec3(0, 0, 1)); b = lutAt(p + ivec3(1, 0, 1)); wa = w.z; wb = w.x; wc = w.y; }
+  } else if (w.z >= w.y) { a = lutAt(p + ivec3(0, 0, 1)); b = lutAt(p + ivec3(0, 1, 1)); wa = w.z; wb = w.y; wc = w.x; }
+  else if (w.z >= w.x) { a = lutAt(p + ivec3(0, 1, 0)); b = lutAt(p + ivec3(0, 1, 1)); wa = w.y; wb = w.z; wc = w.x; }
+  else { a = lutAt(p + ivec3(0, 1, 0)); b = lutAt(p + ivec3(1, 1, 0)); wa = w.y; wb = w.x; wc = w.z; }
+  return c000 + wa * (a - c000) + wb * (b - a) + wc * (c111 - b);
 }
 
 vec3 leak(vec2 uv) {
@@ -186,6 +216,15 @@ void main() {
     n = mix(vec3(l), col, uGrainColor);
   }
 
+  vec3 o;
+  if (uType == 2) {
+    vec3 x = u * uContrastU + uWbShift;
+    vec3 h = clamp(x / 1.5, 0.0, 1.0);
+    x += uHl * 0.3 * h * h;
+    x += (uGrainAmp / 0.6) * n * (0.35 + sqrt(max(0.6 * (x + 2.0), 0.0)));
+    vec3 lin = toLinear(lutTetra(x));
+    o = toSrgb(clamp(lin * (1.0 - 0.1 * uFade) + 0.1 * uFade, 0.0, 1.0));
+  } else {
   vec3 Dl;
   if (uType == 1) {
     Dl = uDmid - uLineG * u + uOffset;
@@ -200,7 +239,8 @@ void main() {
   D = uDmax - softplus(uDmax - D, uShoulder);
   D = uDye * D;
   vec3 lin = (pow(vec3(10.0), -(D - uDmin)) - uRk) / (1.0 - uRk);
-  vec3 o = toSrgb(clamp(lin, 0.0, 1.0));
+  o = toSrgb(clamp(lin, 0.0, 1.0));
+  }
   // Dithering gegen Tonwertabrisse in 8 Bit
   o += (rnd(ivec2(gl_FragCoord.xy), 99u) * 0.5) / 255.0;
   outColor = vec4(o, 1.0);
@@ -248,6 +288,9 @@ export class FilmRenderer {
     this.srcW = 0;
     this.srcH = 0;
     this.targets = {};
+    this.luts = new Map();
+    // leere 3D-Textur, damit der Sampler immer gültig ist
+    this.dummyLut = this.makeLut(new Uint8Array([0, 0, 0]), 1);
     this.uniformCache = new Map();
   }
 
@@ -285,6 +328,22 @@ export class FilmRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return t;
+  }
+
+  makeLut(data, N) {
+    const gl = this.gl;
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_3D, t);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB8, N, N, N, 0, gl.RGB, gl.UNSIGNED_BYTE, data);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_3D, k, v);
+    return t;
+  }
+
+  // 3D-LUT eines spektralen Films hochladen (einmalig je Film).
+  setLut(id, lut) {
+    if (!this.luts.has(id)) this.luts.set(id, this.makeLut(lut.data, lut.size));
   }
 
   // Quelle hochladen (Video, Bild, Canvas, ImageBitmap). Mipmaps verhindern
@@ -416,6 +475,22 @@ export class FilmRenderer {
     gl.bindTexture(gl.TEXTURE_2D, wide.tex);
     gl.uniform1i(L.uWide, 2);
     gl.activeTexture(gl.TEXTURE0);
+
+    gl.activeTexture(gl.TEXTURE3);
+    const lutTex = U.type === 2 ? this.luts.get(U.lut) : this.dummyLut;
+    if (!lutTex) throw new Error(`LUT ${U.lut} nicht geladen`);
+    gl.bindTexture(gl.TEXTURE_3D, lutTex);
+    gl.uniform1i(L.uLut, 3);
+    gl.activeTexture(gl.TEXTURE0);
+    if (U.type === 2) {
+      gl.uniform1f(L.uLutMin, U.lutMin);
+      gl.uniform1f(L.uLutMax, U.lutMax);
+      gl.uniform1f(L.uLutSize, U.lutSize);
+      gl.uniform1f(L.uContrastU, U.contrast);
+      gl.uniform3fv(L.uWbShift, U.wbShift);
+      gl.uniform1f(L.uHl, U.highlights);
+      gl.uniform1f(L.uFade, U.fade);
+    }
 
     gl.uniformMatrix3fv(L.uSrcM, false, M);
     gl.uniform1f(L.uGain, U.gain);

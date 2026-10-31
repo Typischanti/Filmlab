@@ -8,9 +8,10 @@ import {
 } from '../camera/js/model.js';
 
 const MID = 0.4613; // sRGB-Wert von 18 % Grau
+const ANALYTIC = FILMS.filter((f) => f.type !== 'lut');
 
 test('Mittelgrau bleibt bei jedem Film neutral und 18 % hell', () => {
-  for (const f of FILMS) {
+  for (const f of ANALYTIC) {
     const U = buildUniforms({ film: f.id, temp: -f.temp, tint: -f.tint });
     const out = filmPixel([MID, MID, MID], U);
     for (const v of out) assert.ok(Math.abs(v - MID) < 0.02, `${f.id}: ${out}`);
@@ -18,7 +19,7 @@ test('Mittelgrau bleibt bei jedem Film neutral und 18 % hell', () => {
 });
 
 test('Grautreppe ist monoton, Lichter laufen weich aus, Schwarz bleibt dunkel', () => {
-  for (const f of FILMS) {
+  for (const f of ANALYTIC) {
     const U = buildUniforms({ film: f.id });
     let prev = -1;
     for (let x = 0; x <= 1.0001; x += 0.02) {
@@ -108,7 +109,7 @@ test('Belichtungsumfang: Dia frisst früh aus, Negativ behält Zeichnung in den 
     return (v[0] + v[1] + v[2]) / 3;
   };
   // Jeder Film erreicht Weiß ungefähr dort, wo sein Umfang endet
-  for (const f of FILMS) {
+  for (const f of ANALYTIC) {
     if (f.over > 4.5) continue;
     assert.ok(Math.abs(out(f.id, f.over) - 0.95) < 0.01, `${f.id} bei +${f.over}`);
   }
@@ -116,7 +117,7 @@ test('Belichtungsumfang: Dia frisst früh aus, Negativ behält Zeichnung in den 
   assert.ok(out('pastell400', 3) < 0.8, 'Negativ bei +3 Blenden noch mit Zeichnung');
   assert.ok(out('kino500t', 4) < out('vivid100', 4), 'Kinofilm weicher als Vivid');
   // Mittelgrau bleibt bei allen Filmen erhalten
-  for (const f of FILMS) assert.ok(Math.abs(out(f.id, 0) - 0.18) < 0.02, `${f.id} Mittelgrau`);
+  for (const f of ANALYTIC) assert.ok(Math.abs(out(f.id, 0) - 0.18) < 0.02, `${f.id} Mittelgrau`);
 });
 
 test('Lichter-Rekonstruktion: Mitteltöne unverändert, Weiß wird zu hellem Szenenlicht', async () => {
@@ -126,4 +127,25 @@ test('Lichter-Rekonstruktion: Mitteltöne unverändert, Weiß wird zu hellem Sze
   assert.ok(Math.abs(w[0] - HL_MAX) < 1e-9);
   const c = expandHighlights([0.9, 0.45, 0.3]);
   assert.ok(c[0] > 0.9 && Math.abs(c[1] / c[0] - 0.5) < 1e-9, 'Farbton bleibt');
+});
+
+test('Spektrale Filme: LUTs vollständig, Grau neutral, Mittelgrau erhalten', async () => {
+  const fs = await import('node:fs');
+  const { registerLut, filmPixelLinear, srgbToLinear: lin } = await import('../camera/js/model.js');
+  const dir = new URL('../camera/luts/', import.meta.url);
+  const idx = JSON.parse(fs.readFileSync(new URL('index.json', dir), 'utf8'));
+  for (const f of FILMS.filter((x) => x.type === 'lut')) {
+    const data = new Uint8Array(fs.readFileSync(new URL(`${f.lut}.bin`, dir)));
+    assert.equal(data.length, idx.size ** 3 * 3, `${f.lut} Größe`);
+    registerLut(f.lut, { size: idx.size, min: idx.min, max: idx.max, data });
+    const U = buildUniforms({ film: f.id, grain: 0 });
+    assert.equal(U.type, 2);
+    for (const st of [-4, -1, 0, 1, 3]) {
+      const L = 0.18 * 2 ** st;
+      const o = filmPixelLinear([L, L, L], U);
+      assert.ok(Math.max(...o) - Math.min(...o) < 0.02, `${f.id} grau bei ${st}: ${o}`);
+    }
+    const mid = filmPixelLinear([0.18, 0.18, 0.18], U).map(lin);
+    assert.ok(Math.abs(mid[1] - 0.18) < 0.03, `${f.id} Mittelgrau ${mid[1]}`);
+  }
 });

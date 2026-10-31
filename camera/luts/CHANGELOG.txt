@@ -1,0 +1,39 @@
+Derived from spektrafilm by Andrea Volpato
+https://github.com/andreavolpato/spektrafilm
+Licensed CC BY-SA 4.0 (see LICENSE.txt in this folder)
+Modified by Filmkamera (https://github.com/Typischanti/Filmlab).
+
+What these files are
+--------------------
+The *.bin files in this folder are 3D lookup tables (33 x 33 x 33 nodes,
+8-bit sRGB output, red index fastest; axis = log10(exposure / 18 % grey)
+per channel from -3.6 to +2.1, see index.json). They encode the spectral
+data of the following spektrafilm profiles (profile version 0.3.2,
+repository state 2026-06-07):
+
+  kodak_portra_160, kodak_portra_400, kodak_portra_800, kodak_ektar_100,
+  kodak_gold_200, kodak_ultramax_400       -> printed on kodak_portra_endura
+  fujifilm_pro_400h, fujifilm_c200         -> printed on fujifilm_crystal_archive_typeii
+  kodak_vision3_250d, kodak_vision3_500t   -> printed on kodak_2383
+  fujifilm_velvia_100, fujifilm_provia_100f,
+  kodak_ektachrome_100, kodak_kodachrome_64 (viewed directly)
+
+Changes / how they were made
+----------------------------
+- Only the measured data of the profiles was used (wavelengths,
+  log_sensitivity, channel_density, base_density, log_exposure,
+  density_curves). No spektrafilm code was used; the LUTs were computed with
+  an independent implementation in tools/spectral/ of the Filmkamera
+  repository.
+- Scene light: smooth reflectance spectra (sigmoid polynomial) under a
+  5500 K Planck illuminant; a lens transmission cut-off below ~408 nm is
+  applied before the film.
+- Printing: tungsten lamp (3200 K with heat filter), printer lights set so
+  that 18 % grey prints neutral at 18 % luminance.
+- Viewing: 5000 K Planck illuminant, CIE 1931 observer (analytic
+  approximation by Wyman, Sloan and Shirley 2013), Bradford adaptation to
+  D65, sRGB output.
+- Grey balance as on a lab scanner: per-channel curves so that neutral
+  scene tones stay neutral from black to white.
+- Couplers (DIR/masking interactions beyond the published dye spectra) and
+  the hanatos2025 spectral upsampling are not modelled.
