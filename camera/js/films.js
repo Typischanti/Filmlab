@@ -1,0 +1,219 @@
+// Filmmaterialien der Kamera. Jeder Film ist ein Satz physikalischer Parameter
+// für das Modell in model.js – keine fertigen LUTs. Die Namen sind eigene,
+// die Looks orientieren sich an bekannten Filmgattungen.
+//
+// type 'print': Farbnegativ, das auf Fotopapier (bzw. Kinofilm auf
+//               Kopierfilm) vergrößert wird.
+// type 'slide': Umkehrfilm, wird direkt betrachtet.
+//
+// cross:    Übersprechen Kamera-RGB -> Filmschichten (Zeilen R, G, B)
+// gamma:    Gesamtgradation (Film x Papier) im Mittelton
+// layers:   relative Gradation der Schichten (Farbverschiebung Tiefen/Lichter)
+// sat:      Zwischenschichteffekte (DIR-Kuppler), > 0 kräftigere Farben
+// temp/tint: Grundfilterung des Labors
+// latitude: Belichtungsspielraum des Negativs unter Mittelgrau (log10)
+// paper:    Dmin/Dmax und Weichheit von Fuß (Lichter) und Schulter (Tiefen)
+// dyes:     Nebenabsorptionen der Farbstoffe (0..1)
+// grain:    Menge (Dichte), Größe (Anteil der kurzen Bildseite), Farbanteil
+// halation: Stärke, Radius (Anteil der kurzen Bildseite), Farbe
+
+const CROSS_SOFT = [
+  [0.86, 0.12, 0.02],
+  [0.07, 0.85, 0.08],
+  [0.02, 0.12, 0.86],
+];
+
+const CROSS_CLEAN = [
+  [0.92, 0.07, 0.01],
+  [0.05, 0.9, 0.05],
+  [0.01, 0.07, 0.92],
+];
+
+const CROSS_WARM = [
+  [0.88, 0.1, 0.02],
+  [0.1, 0.84, 0.06],
+  [0.03, 0.13, 0.84],
+];
+
+export const FILMS = [
+  {
+    id: 'pastell400',
+    name: 'Pastell 400',
+    iso: 400,
+    process: 'C-41',
+    group: 'Farbnegativ',
+    desc: 'Weiche Hauttöne, warme Lichter, kühle Tiefen – der Porträtfilm.',
+    swatch: ['#f1cfae', '#d79a7a', '#7f9fa3'],
+    type: 'print',
+    cross: CROSS_SOFT,
+    gamma: 0.92,
+    layers: [1.0, 1.0, 0.93],
+    sat: 0.06,
+    temp: 0.18,
+    tint: 0.02,
+    latitude: 2.0,
+    paper: { dmin: 0.08, dmax: 2.25, toe: 0.12, shoulder: 0.32 },
+    dyes: 0.55,
+    grain: { amount: 0.03, size: 0.0007, color: 0.35 },
+    halation: { amount: 0.35, radius: 0.012, tint: [1.0, 0.3, 0.08] },
+    bloom: 0.04,
+  },
+  {
+    id: 'aurum200',
+    name: 'Aurum 200',
+    iso: 200,
+    process: 'C-41',
+    group: 'Farbnegativ',
+    desc: 'Goldene Wärme, sattes Gelb und Rot – Sommer und Urlaubsfotos.',
+    swatch: ['#ffd27a', '#e8833f', '#7d8f55'],
+    type: 'print',
+    cross: CROSS_WARM,
+    gamma: 1.02,
+    layers: [1.0, 0.98, 0.9],
+    sat: 0.3,
+    temp: 0.5,
+    tint: -0.04,
+    latitude: 1.9,
+    paper: { dmin: 0.08, dmax: 2.3, toe: 0.12, shoulder: 0.3 },
+    dyes: 0.7,
+    grain: { amount: 0.036, size: 0.0008, color: 0.4 },
+    halation: { amount: 0.4, radius: 0.012, tint: [1.0, 0.34, 0.08] },
+    bloom: 0.04,
+  },
+  {
+    id: 'alltag400',
+    name: 'Alltag 400',
+    iso: 400,
+    process: 'C-41',
+    group: 'Farbnegativ',
+    desc: 'Kräftig, warm, sichtbares Korn – der Film für die Hosentasche.',
+    swatch: ['#f4b860', '#c2463a', '#4d7a6a'],
+    type: 'print',
+    cross: CROSS_WARM,
+    gamma: 1.08,
+    layers: [1.0, 1.0, 0.92],
+    sat: 0.34,
+    temp: 0.3,
+    tint: -0.08,
+    latitude: 1.8,
+    paper: { dmin: 0.08, dmax: 2.3, toe: 0.11, shoulder: 0.28 },
+    dyes: 0.75,
+    grain: { amount: 0.05, size: 0.001, color: 0.45 },
+    halation: { amount: 0.45, radius: 0.013, tint: [1.0, 0.32, 0.08] },
+    bloom: 0.05,
+  },
+  {
+    id: 'vivid100',
+    name: 'Vivid 100',
+    iso: 100,
+    process: 'C-41',
+    group: 'Farbnegativ',
+    desc: 'Feinstes Korn, leuchtende Farben, klarer Kontrast – Landschaft.',
+    swatch: ['#ff6a3d', '#2f8fd6', '#3fa35a'],
+    type: 'print',
+    cross: CROSS_CLEAN,
+    gamma: 1.12,
+    layers: [1.0, 1.0, 0.97],
+    sat: 0.52,
+    temp: 0.08,
+    tint: 0.0,
+    latitude: 1.7,
+    paper: { dmin: 0.08, dmax: 2.35, toe: 0.1, shoulder: 0.26 },
+    dyes: 0.8,
+    grain: { amount: 0.018, size: 0.0005, color: 0.3 },
+    halation: { amount: 0.25, radius: 0.01, tint: [1.0, 0.3, 0.08] },
+    bloom: 0.03,
+  },
+  {
+    id: 'kino500t',
+    name: 'Kino 500T',
+    iso: 500,
+    process: 'ECN-2',
+    group: 'Kinofilm',
+    desc: 'Kunstlichtfilm: kühl, filmisch, starke rote Halation um Lichter – Nacht und Neon.',
+    swatch: ['#ff4b3a', '#2b6f8f', '#14222c'],
+    type: 'print',
+    cross: CROSS_SOFT,
+    gamma: 1.05,
+    layers: [1.03, 1.0, 0.9],
+    sat: 0.16,
+    temp: -0.55,
+    tint: 0.06,
+    latitude: 2.1,
+    paper: { dmin: 0.06, dmax: 2.9, toe: 0.12, shoulder: 0.34 },
+    dyes: 0.7,
+    grain: { amount: 0.05, size: 0.0011, color: 0.5 },
+    halation: { amount: 1.6, radius: 0.016, tint: [1.0, 0.22, 0.05] },
+    bloom: 0.1,
+  },
+  {
+    id: 'kino250d',
+    name: 'Kino 250D',
+    iso: 250,
+    process: 'ECN-2',
+    group: 'Kinofilm',
+    desc: 'Tageslicht-Kinofilm: natürlich, weich abgestuft, tiefe Schwärzen.',
+    swatch: ['#e9b98f', '#5d8a8c', '#1c2326'],
+    type: 'print',
+    cross: CROSS_SOFT,
+    gamma: 1.02,
+    layers: [1.02, 1.0, 0.94],
+    sat: 0.16,
+    temp: 0.05,
+    tint: 0.02,
+    latitude: 2.1,
+    paper: { dmin: 0.06, dmax: 2.8, toe: 0.13, shoulder: 0.32 },
+    dyes: 0.65,
+    grain: { amount: 0.032, size: 0.0008, color: 0.4 },
+    halation: { amount: 0.7, radius: 0.014, tint: [1.0, 0.26, 0.06] },
+    bloom: 0.06,
+  },
+  {
+    id: 'chrom50',
+    name: 'Chrom 50',
+    iso: 50,
+    process: 'E-6',
+    group: 'Diafilm',
+    desc: 'Diafilm mit extremer Sättigung und Kontrast – leuchtendes Grün und Blau.',
+    swatch: ['#1e7bd8', '#2da84a', '#d62a6a'],
+    type: 'slide',
+    cross: CROSS_CLEAN,
+    gamma: 1.32,
+    layers: [1.0, 1.02, 1.0],
+    sat: 0.45,
+    temp: 0.04,
+    tint: 0.1,
+    paper: { dmin: 0.12, dmax: 3.2, toe: 0.07, shoulder: 0.38 },
+    dyes: 0.85,
+    grain: { amount: 0.012, size: 0.0004, color: 0.25 },
+    halation: { amount: 0.06, radius: 0.008, tint: [1.0, 0.4, 0.15] },
+    bloom: 0.02,
+  },
+  {
+    id: 'chrom100',
+    name: 'Chrom 100',
+    iso: 100,
+    process: 'E-6',
+    group: 'Diafilm',
+    desc: 'Neutraler Diafilm: klar, kühl, brillant, mit satten Schatten.',
+    swatch: ['#3b86c4', '#e4e0d6', '#2b2f36'],
+    type: 'slide',
+    cross: CROSS_CLEAN,
+    gamma: 1.22,
+    layers: [1.0, 1.0, 1.02],
+    sat: 0.26,
+    temp: -0.12,
+    tint: 0.0,
+    paper: { dmin: 0.1, dmax: 3.0, toe: 0.08, shoulder: 0.36 },
+    dyes: 0.8,
+    grain: { amount: 0.016, size: 0.0005, color: 0.3 },
+    halation: { amount: 0.06, radius: 0.008, tint: [1.0, 0.4, 0.15] },
+    bloom: 0.02,
+  },
+];
+
+export const FILM_BY_ID = Object.fromEntries(FILMS.map((f) => [f.id, f]));
+
+export function getFilm(id) {
+  return FILM_BY_ID[id] ?? FILMS[0];
+}

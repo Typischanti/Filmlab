@@ -19,6 +19,41 @@ python3 -m http.server 8000      # oder: npx serve
 Mit dem Workflow `.github/workflows/pages.yml` kann sie auf GitHub Pages
 veröffentlicht werden (Settings → Pages → Source: „GitHub Actions“).
 
+## Filmkamera (iPhone-App)
+
+Im Ordner `camera/` liegt eine Kamera-App mit Filmemulation, gedacht als
+Web-App für den Home-Bildschirm des iPhones (kein Mac und kein App Store
+nötig). Sie wird zusammen mit Filmlab veröffentlicht und ist dann unter
+`…/camera/` erreichbar.
+
+**Installieren:** Die Seite in Safari öffnen → Teilen → „Zum Home-Bildschirm“.
+Danach startet sie im Vollbild wie eine normale App und funktioniert auch
+offline. Kamera und Lagesensor fragt sie beim ersten Start ab.
+
+**Funktionen**
+- Live-Sucher mit Filmlook (WebGL2, läuft auf der GPU), Objektive 0,5×/1×/2×/3×
+  und Frontkamera, Belichtung per senkrechtem Wischen im Sucher
+- Acht Filme: Pastell 400, Aurum 200, Alltag 400, Vivid 100 (Farbnegativ),
+  Kino 500T und Kino 250D (Kinofilm), Chrom 50 und Chrom 100 (Dia)
+- Physikalisches Modell wie in Filmlab: Schichtübersprechen, Negativdichte,
+  Vergrößerer und Fotopapier bzw. Umkehrkurve, Farbstoff-Nebenabsorptionen;
+  Korn in der Negativdichte, Halation als rötliches Streulicht der
+  Filmrückseite, Lichtlecks als echtes Licht auf dem Film
+- Ausführliche Regler: Belichtung, Temperatur, Tönung, Kontrast, Sättigung,
+  Lichter, Verblassen, Korn und Korngröße, Halation und Radius, Bloom,
+  Vignette, Lichtleck (mit Würfel für neue Varianten)
+- Datumsstempel im Stil der Kompaktkameras, Filmrahmen mit Perforation und
+  Randbeschriftung, Formate 3:2, 16:9 und 2.39:1, Querformat-Erkennung
+- Galerie im Gerät (IndexedDB): Jedes Foto wird mit dem unentwickelten
+  Original gespeichert und lässt sich später mit anderem Film oder anderen
+  Reglern neu entwickeln; Sichern in die Fotos-App über das Teilen-Menü
+- Import aus der Mediathek in voller Qualität (bis ca. 12 MP)
+
+**Grenzen einer Web-App:** Safari liefert nur den Videostream der Kamera
+(höchstens ca. 12 MP, automatische Belichtung, kein RAW/ProRAW, kein manueller
+Fokus). Für maximale Qualität mit der iPhone-Kamera fotografieren und das Foto
+in der Filmkamera importieren.
+
 ## So funktioniert die Umwandlung
 
 Statt das Bild einfach zu invertieren, arbeitet Filmlab wie ein Fotolabor im

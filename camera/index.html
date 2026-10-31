@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Filmkamera</title>
+  <meta name="description" content="Kamera mit physikalischer Filmemulation – Farbnegativ, Kinofilm und Dia.">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Filmkamera">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/camera.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <!-- Kamera -->
+  <section id="cam" class="screen active" aria-label="Kamera">
+    <header class="topbar">
+      <button id="btnAspect" class="pill" aria-label="Bildformat">3:2</button>
+      <div class="top-toggles">
+        <button id="btnDate" class="icon-btn toggle" aria-label="Datumsstempel" aria-pressed="false"></button>
+        <button id="btnFrame" class="icon-btn toggle" aria-label="Filmrahmen" aria-pressed="false"></button>
+        <button id="btnLeak" class="icon-btn toggle" aria-label="Lichtleck" aria-pressed="false"></button>
+      </div>
+      <button id="btnAdjust" class="icon-btn" aria-label="Regler"></button>
+    </header>
+
+    <div id="viewfinder" class="viewfinder">
+      <div id="vfFrame" class="vf-frame">
+        <div id="glMountCam" class="gl-mount"></div>
+        <div id="vfDate" class="vf-date" hidden></div>
+        <div id="vfFrameBadge" class="vf-badge" hidden>Filmrahmen</div>
+        <div id="vfEv" class="vf-ev" hidden></div>
+        <div id="flash" class="flash"></div>
+      </div>
+      <div id="camMsg" class="cam-msg" hidden>
+        <p id="camMsgText">Kamera wird gestartet …</p>
+        <button id="btnCamRetry" class="btn primary" hidden>Kamera erlauben</button>
+      </div>
+    </div>
+
+    <div class="cam-controls">
+      <div id="lenses" class="lenses" role="radiogroup" aria-label="Objektiv"></div>
+      <div id="filmStripCam" class="film-strip" role="radiogroup" aria-label="Film"></div>
+      <div class="shutter-row">
+        <button id="btnGallery" class="gallery-btn" aria-label="Galerie"><img id="galleryThumb" alt=""><span id="galleryBusy" class="spinner" hidden></span></button>
+        <button id="btnShutter" class="shutter" aria-label="Auslösen"><span></span></button>
+        <button id="btnFlip" class="icon-btn round" aria-label="Kamera wechseln"></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Galerie -->
+  <section id="gallery" class="screen" aria-label="Galerie">
+    <header class="navbar">
+      <button id="btnGalleryBack" class="icon-btn" aria-label="Zur Kamera"></button>
+      <h1>Galerie</h1>
+      <div class="nav-right">
+        <button id="btnImport" class="text-btn">Importieren</button>
+        <button id="btnSelect" class="text-btn">Auswählen</button>
+      </div>
+    </header>
+    <div id="grid" class="grid"></div>
+    <div id="galleryEmpty" class="empty" hidden>
+      <p>Noch keine Bilder.</p>
+      <p class="fine">Fotografiere mit der Kamera oder importiere Fotos aus deiner Mediathek, um sie mit einem Film zu entwickeln.</p>
+    </div>
+    <footer id="selectBar" class="select-bar" hidden>
+      <button id="btnSelShare" class="btn primary" disabled>Sichern / Teilen</button>
+      <span id="selCount" class="sel-count">0 ausgewählt</span>
+      <button id="btnSelDelete" class="btn danger" disabled>Löschen</button>
+    </footer>
+  </section>
+
+  <!-- Einzelansicht -->
+  <section id="viewer" class="screen" aria-label="Foto">
+    <header class="navbar">
+      <button id="btnViewerBack" class="icon-btn" aria-label="Zurück"></button>
+      <h1 id="viewerTitle"></h1>
+      <div class="nav-right"></div>
+    </header>
+    <div id="viewerStage" class="viewer-stage">
+      <img id="viewerImg" alt="">
+    </div>
+    <footer class="viewer-bar">
+      <button id="btnViewerShare" class="icon-btn" aria-label="Sichern / Teilen"></button>
+      <button id="btnViewerEdit" class="btn">Entwickeln</button>
+      <button id="btnViewerDelete" class="icon-btn" aria-label="Löschen"></button>
+    </footer>
+  </section>
+
+  <!-- Entwickeln / Bearbeiten -->
+  <section id="editor" class="screen" aria-label="Entwickeln">
+    <header class="navbar">
+      <button id="btnEditCancel" class="text-btn">Abbrechen</button>
+      <h1>Entwickeln</h1>
+      <div class="nav-right"><button id="btnEditDone" class="text-btn strong">Fertig</button></div>
+    </header>
+    <div id="editStage" class="edit-stage">
+      <div id="editFrame" class="vf-frame">
+        <div id="glMountEdit" class="gl-mount"></div>
+        <div id="edDate" class="vf-date" hidden></div>
+      </div>
+    </div>
+    <div class="edit-controls">
+      <div class="edit-row">
+        <button id="btnEdAspect" class="pill">3:2</button>
+        <div class="top-toggles">
+          <button id="btnEdDate" class="icon-btn toggle" aria-label="Datumsstempel" aria-pressed="false"></button>
+          <button id="btnEdFrame" class="icon-btn toggle" aria-label="Filmrahmen" aria-pressed="false"></button>
+          <button id="btnEdLeak" class="icon-btn toggle" aria-label="Lichtleck" aria-pressed="false"></button>
+        </div>
+        <button id="btnEdAdjust" class="icon-btn" aria-label="Regler"></button>
+      </div>
+      <div id="filmStripEdit" class="film-strip" role="radiogroup" aria-label="Film"></div>
+    </div>
+  </section>
+
+  <!-- Regler (Kamera und Entwickeln) -->
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-head">
+      <div>
+        <div id="sheetFilm" class="sheet-film"></div>
+        <div id="sheetFilmDesc" class="fine"></div>
+      </div>
+      <button id="btnSheetClose" class="icon-btn" aria-label="Schließen"></button>
+    </div>
+    <div id="sheetBody" class="sheet-body"></div>
+    <div class="sheet-foot">
+      <button id="btnSheetReset" class="btn">Alle zurücksetzen</button>
+      <span class="fine">Doppeltippen setzt einen Regler zurück</span>
+    </div>
+  </div>
+
+  <div id="busy" class="busy" hidden><span class="spinner"></span><span id="busyText">Entwickle …</span></div>
+  <div id="toast" class="toast" hidden></div>
+  <input type="file" id="importInput" accept="image/*" multiple hidden>
+  <label id="hapticLabel" class="haptic"><input type="checkbox" switch id="hapticInput"></label>
+  <video id="video" playsinline muted autoplay></video>
+</body>
+</html>
