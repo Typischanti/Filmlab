@@ -236,6 +236,22 @@ export function densities(P, logE) {
   return [0, 1, 2].map((k) => interpCurve(P.logE, P.curves[k], logE[k]));
 }
 
+// DIR-Kuppler (Entwicklungshemmer): Bildet eine Schicht mehr Dichte als bei
+// neutraler Belichtung, hemmt sie die Entwicklung der anderen Schichten.
+// Für Grau heben sich die Beiträge auf – die gemessenen Kennlinien bleiben
+// erhalten; farbige Motive werden gesättigter.
+export function densitiesDIR(P, logE, alpha) {
+  const D = densities(P, logE);
+  if (!alpha) return D;
+  const m = (logE[0] + logE[1] + logE[2]) / 3;
+  const excess = D.map((d, k) => d - interpCurve(P.logE, P.curves[k], m));
+  return D.map((d, k) => {
+    let inh = 0;
+    for (let j = 0; j < 3; j++) if (j !== k) inh += excess[j];
+    return Math.max(0, d - alpha * inh);
+  });
+}
+
 export function transmittance(P, D) {
   return P.base.map((b, i) => Math.pow(10, -(b + D[0] * P.dye[i][0] + D[1] * P.dye[i][1] + D[2] * P.dye[i][2])));
 }
@@ -244,6 +260,7 @@ export function transmittance(P, D) {
 // film: Aufnahmematerial, print: Papier/Kopierfilm (null bei Dia)
 export function makeChain(film, print, opts = {}) {
   const scene = planck(opts.sceneCCT ?? 5500);
+  const dir = opts.dir ?? 0;
   const up = makeUpsampler(scene);
   const view = planck(opts.viewCCT ?? 5000);
   const viewY = illumY(view);
@@ -264,7 +281,7 @@ export function makeChain(film, print, opts = {}) {
 
   // Endergebnis eines Szenenspektrums als Spektrum (Reflexion/Transmission)
   const finalSpectrum = (S) => {
-    const Tn = transmittance(film, densities(film, filmLogE(S)));
+    const Tn = transmittance(film, densitiesDIR(film, filmLogE(S), dir));
     if (!print) return Tn;
     return transmittance(print, densities(print, printLogE(Tn)));
   };
@@ -274,13 +291,17 @@ export function makeChain(film, print, opts = {}) {
   if (print) {
     // Filterung: Mittelgrau-Negativ belichtet alle Papierschichten gleich
     // stark; Gesamtbelichtung so, dass der Abzug 18 % Helligkeit erreicht.
-    const Tgrey = transmittance(film, densities(film, filmLogE(grey)));
+    // Filterung auf ein Grau unter balanceCCT (Standard: Szenenlicht). Ein
+    // niedrigerer Wert lässt z. B. Kunstlichtfilm bei Tageslicht kühler.
+    const balGrey = opts.balanceCCT ? planck(opts.balanceCCT).map((v) => 0.18 * v) : grey;
+    const yScale = illumY(scene) / illumY(balGrey.map((v) => v / 0.18));
+    const Tgrey = transmittance(film, densitiesDIR(film, filmLogE(balGrey.map((v) => v * yScale)), dir));
     paperOff = [0, 0, 0];
     const raw = printLogE(Tgrey);
     const whiteY = toXYZ(whiteSpectrum)[1];
     const yAt = (x) => {
       paperOff = raw.map((v) => x - v);
-      return toXYZ(finalSpectrum(grey))[1] / whiteY;
+      return toXYZ(finalSpectrum(balGrey.map((v) => v * yScale)))[1] / whiteY;
     };
     const target = opts.midTarget ?? 0.18;
     let lo = -3, hi = 4; // mehr Papierbelichtung -> dunkler
@@ -361,9 +382,33 @@ export function makeChain(film, print, opts = {}) {
     const t = (v - pts[lo][0]) / (pts[hi][0] - pts[lo][0]);
     return pts[lo][1] + t * (pts[hi][1] - pts[lo][1]);
   };
+  // Laborabgleich an einem Punkt: Schwarz neutral, Mittelgrau neutral auf
+  // 18 % (wie Filterung bzw. Scanner-Weißabgleich). Lichter und Schatten
+  // behalten die filmtypischen Farbverschiebungen.
+  const rawBlack = renderRaw([1e-7, 1e-7, 1e-7]);
+  // Mittelgrau so, wie das Labor es sieht: Grau unter balanceCCT (bei
+  // Kunstlichtfilm bleibt Tageslicht-Grau dadurch bewusst kühl)
+  let midIn = [0.18, 0.18, 0.18];
+  if (opts.balanceCCT) {
+    const bal = planck(opts.balanceCCT);
+    const xyz = spectrumXYZ(bal, illumY(bal));
+    const sceneWhite = spectrumXYZ(scene, illumY(scene));
+    const rgb = mul(XYZ_TO_SRGB, mul(adaptMatrix(sceneWhite, D65), xyz));
+    const Y = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+    midIn = rgb.map((v) => (0.18 * v) / Y);
+  }
+  const rawMid = renderRaw(midIn);
+  const midTarget = opts.midTarget ?? 0.18;
+  const gains = rawMid.map((v, k) => (midTarget - 0) / Math.max(v - rawBlack[k], 1e-6));
+  // balance 1: Grauachse überall neutral (Scanner-Automatik), 0: nur
+  // Schwarz und Mittelgrau abgeglichen
+  const balance = opts.balance ?? 1;
   const render = (rgb) => {
     const raw = renderRaw(rgb);
-    return raw.map((v, k) => applyCurve(curves[k], v));
+    return raw.map((v, k) => {
+      const mid = (v - rawBlack[k]) * gains[k];
+      return balance ? mid + balance * (applyCurve(curves[k], v) - mid) : mid;
+    });
   };
   return { render, renderRaw, finalSpectrum, toRGB, yb };
 }
