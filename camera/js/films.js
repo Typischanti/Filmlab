@@ -337,7 +337,7 @@ export const FILMS = [
     iso: 200,
     process: 'C-41',
     group: 'Spektral · Negativ',
-    desc: 'Warm, goldgelb, nostalgisch – der Urlaubsfilm.',
+    desc: 'Warm, goldgelb und weich abgestuft – der Urlaubsfilm.',
     swatch: ['#ffd27a', '#e8833f', '#7d8f55'],
     type: 'lut',
     lut: 'kodak_gold_200',

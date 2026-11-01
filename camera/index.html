@@ -42,6 +42,7 @@
         <div id="vfRoll" class="vf-roll" hidden></div>
         <div id="vfEv" class="vf-ev" hidden></div>
         <div id="vfCount" class="vf-count" hidden></div>
+        <div id="vfRec" class="vf-rec" hidden><i></i><span>00:00</span></div>
       </div>
       <div id="camMsg" class="cam-msg" hidden>
         <p id="camMsgText">Kamera wird gestartet …</p>
@@ -52,6 +53,10 @@
     <div class="cam-controls">
       <div id="lenses" class="lenses" role="radiogroup" aria-label="Objektiv"></div>
       <div id="filmStripCam" class="film-strip" role="radiogroup" aria-label="Film"></div>
+      <div id="modeSwitch" class="mode-switch" role="radiogroup" aria-label="Aufnahmeart">
+        <button data-mode="photo" role="radio">Foto</button>
+        <button data-mode="video" role="radio">Video</button>
+      </div>
       <div class="shutter-row">
         <button id="btnGallery" class="gallery-btn" aria-label="Galerie"><img id="galleryThumb" alt=""><span id="galleryBusy" class="spinner" hidden></span></button>
         <button id="btnShutter" class="shutter" aria-label="Auslösen"><span></span></button>
@@ -91,6 +96,7 @@
     </header>
     <div id="viewerStage" class="viewer-stage">
       <img id="viewerImg" alt="">
+      <video id="viewerVideo" controls playsinline hidden></video>
     </div>
     <footer class="viewer-bar">
       <button id="btnViewerShare" class="icon-btn" aria-label="Sichern / Teilen"></button>

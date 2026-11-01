@@ -40,8 +40,8 @@
     "kodak_gold_200": {
       "stock": "kodak_gold_200",
       "name": "Kodak Gold 200",
-      "print": "kodak_endura_premier",
-      "printName": "Kodak Professional Endura Premier",
+      "print": "kodak_supra_endura",
+      "printName": "Kodak Professional Supra Endura",
       "type": "negative",
       "use": "still"
     },

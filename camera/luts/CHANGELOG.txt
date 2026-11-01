@@ -14,7 +14,7 @@ repository state 2026-06-07):
   kodak_portra_160, kodak_portra_400      -> printed on kodak_portra_endura
   kodak_portra_800                        -> printed on kodak_supra_endura
   kodak_ektar_100                         -> printed on kodak_ultra_endura
-  kodak_gold_200                          -> printed on kodak_endura_premier
+  kodak_gold_200                          -> printed on kodak_supra_endura
   kodak_ultramax_400                      -> printed on kodak_ektacolor_edge
   fujifilm_pro_400h, fujifilm_c200        -> printed on fujifilm_crystal_archive_typeii
   kodak_vision3_250d, kodak_vision3_500t  -> printed on kodak_2383
@@ -39,12 +39,13 @@ Changes / how they were made
 - Grey balance: black and 18 % grey are neutralised (lab filtration);
   the rest of the grey axis is corrected only halfway, so the stock's own
   shifts in shadows and highlights partly remain. Vision3 500T is filtered
-  for 3300 K, so daylight scenes stay cool as with uncorrected tungsten film.
+  for 3300 K, so daylight scenes stay cool as with uncorrected tungsten film;
+  Gold 200 is filtered for 8000 K, giving its typical warm, golden print.
 - Simple DIR inhibitor model added (not part of the profiles): density
   formed above the neutral level in one layer inhibits the other layers;
   neutral exposures keep the measured curves. Strength per stock was set by
   ear: Portra 160 0.12, Portra 400 0.22, Portra 800 0.30, Ektar 0.42,
-  Gold 0.32, Ultramax 0.38, Pro 400H 0.18, C200 0.30, Vision3 0.15,
+  Gold 0.45, Ultramax 0.38, Pro 400H 0.18, C200 0.30, Vision3 0.15,
   Velvia 0.38, Provia 0.12, Ektachrome 0.22, Kodachrome 0.30.
 - Masking-coupler interactions beyond the published dye spectra and the
   hanatos2025 spectral upsampling are not modelled.

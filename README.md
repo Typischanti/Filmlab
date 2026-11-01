@@ -48,6 +48,13 @@ offline. Kamera und Lagesensor fragt sie beim ersten Start ab.
   Original gespeichert und lässt sich später mit anderem Film oder anderen
   Reglern neu entwickeln; Sichern in die Fotos-App über das Teilen-Menü
 - Import aus der Mediathek in voller Qualität (bis ca. 12 MP)
+- **Video:** Umschalter Foto/Video; aufgenommen wird der fertig entwickelte
+  Sucher mit Film-Look, bewegtem Korn, Halation, Rahmen und Datumsstempel,
+  dazu der Ton (MP4 auf dem iPhone, bis 3 Minuten je Clip, Auflösung des
+  Suchers); Videos liegen in der Galerie und lassen sich über das
+  Teilen-Menü in die Fotos-App sichern
+- Schwarzweiß, Rahmenarten (Filmstreifen, Laborabzug, Sofortbild),
+  Filmrolle mit 36 Aufnahmen, eigene Looks und Selbstauslöser
 
 **Spektrale Filme:** 14 weitere Filme (Portra 160/400/800, Ektar 100, Gold 200,
 Ultramax 400, Pro 400H, C200, Vision3 250D/500T, Velvia 100, Provia 100F,
