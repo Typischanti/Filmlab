@@ -21,14 +21,14 @@
   <!-- Kamera -->
   <section id="cam" class="screen active" aria-label="Kamera">
     <header class="topbar">
-      <button id="btnAspect" class="pill" aria-label="Bildformat">3:2</button>
-      <div class="top-toggles">
+      <button id="btnAspect" class="pill glass" aria-label="Bildformat">3:2</button>
+      <div class="top-toggles glass">
         <button id="btnDate" class="icon-btn toggle" aria-label="Datumsstempel" aria-pressed="false"></button>
         <button id="btnFrame" class="icon-btn toggle" aria-label="Rahmen" aria-pressed="false"></button>
         <button id="btnLeak" class="icon-btn toggle" aria-label="Lichtleck" aria-pressed="false"></button>
         <button id="btnTimer" class="icon-btn toggle" aria-label="Selbstauslöser" aria-pressed="false"></button>
       </div>
-      <button id="btnAdjust" class="icon-btn" aria-label="Regler"></button>
+      <button id="btnAdjust" class="icon-btn glass" aria-label="Regler"></button>
     </header>
 
     <div id="viewfinder" class="viewfinder">
@@ -51,25 +51,26 @@
     </div>
 
     <div class="cam-controls">
-      <div id="lenses" class="lenses" role="radiogroup" aria-label="Objektiv"></div>
+      <div id="filmReadout" class="film-readout" aria-live="polite"></div>
+      <div id="lenses" class="lenses glass" role="radiogroup" aria-label="Objektiv"></div>
       <div id="filmStripCam" class="film-strip" role="radiogroup" aria-label="Film"></div>
-      <div id="modeSwitch" class="mode-switch" role="radiogroup" aria-label="Aufnahmeart">
+      <div id="modeSwitch" class="mode-switch glass" role="radiogroup" aria-label="Aufnahmeart">
         <button data-mode="photo" role="radio">Foto</button>
         <button data-mode="video" role="radio">Video</button>
       </div>
       <div class="shutter-row">
         <button id="btnGallery" class="gallery-btn" aria-label="Galerie"><img id="galleryThumb" alt=""><span id="galleryBusy" class="spinner" hidden></span></button>
         <button id="btnShutter" class="shutter" aria-label="Auslösen"><span></span></button>
-        <button id="btnFlip" class="icon-btn round" aria-label="Kamera wechseln"></button>
+        <button id="btnFlip" class="icon-btn round glass" aria-label="Kamera wechseln"></button>
       </div>
     </div>
   </section>
 
   <!-- Galerie -->
   <section id="gallery" class="screen" aria-label="Galerie">
-    <header class="navbar">
+    <header class="navbar large">
       <button id="btnGalleryBack" class="icon-btn" aria-label="Zur Kamera"></button>
-      <h1>Galerie</h1>
+      <h1>Galerie<small id="galleryCount"></small></h1>
       <div class="nav-right">
         <button id="btnImport" class="text-btn">Importieren</button>
         <button id="btnSelect" class="text-btn">Auswählen</button>
@@ -77,7 +78,8 @@
     </header>
     <div id="grid" class="grid"></div>
     <div id="galleryEmpty" class="empty" hidden>
-      <p>Noch keine Bilder.</p>
+      <div id="emptyIcon" class="empty-icon"></div>
+      <p>Noch keine Bilder</p>
       <p class="fine">Fotografiere mit der Kamera oder importiere Fotos aus deiner Mediathek, um sie mit einem Film zu entwickeln.</p>
     </div>
     <footer id="selectBar" class="select-bar" hidden>
@@ -98,10 +100,10 @@
       <img id="viewerImg" alt="">
       <video id="viewerVideo" controls playsinline hidden></video>
     </div>
-    <footer class="viewer-bar">
-      <button id="btnViewerShare" class="icon-btn" aria-label="Sichern / Teilen"></button>
-      <button id="btnViewerEdit" class="btn">Entwickeln</button>
-      <button id="btnViewerDelete" class="icon-btn" aria-label="Löschen"></button>
+    <footer class="viewer-bar glass">
+      <button id="btnViewerShare" class="tool-btn" aria-label="Sichern oder teilen"></button>
+      <button id="btnViewerEdit" class="tool-btn accent" aria-label="Entwickeln"></button>
+      <button id="btnViewerDelete" class="tool-btn danger" aria-label="Löschen"></button>
     </footer>
   </section>
 
@@ -123,13 +125,13 @@
     </div>
     <div class="edit-controls">
       <div class="edit-row">
-        <button id="btnEdAspect" class="pill">3:2</button>
-        <div class="top-toggles">
+        <button id="btnEdAspect" class="pill glass">3:2</button>
+        <div class="top-toggles glass">
           <button id="btnEdDate" class="icon-btn toggle" aria-label="Datumsstempel" aria-pressed="false"></button>
           <button id="btnEdFrame" class="icon-btn toggle" aria-label="Rahmen" aria-pressed="false"></button>
           <button id="btnEdLeak" class="icon-btn toggle" aria-label="Lichtleck" aria-pressed="false"></button>
         </div>
-        <button id="btnEdAdjust" class="icon-btn" aria-label="Regler"></button>
+        <button id="btnEdAdjust" class="icon-btn glass" aria-label="Regler"></button>
       </div>
       <div id="filmStripEdit" class="film-strip" role="radiogroup" aria-label="Film"></div>
     </div>
@@ -137,6 +139,7 @@
 
   <!-- Regler (Kamera und Entwickeln) -->
   <div id="sheet" class="sheet" hidden>
+    <button id="sheetGrab" class="sheet-grab" aria-label="Regler schließen"></button>
     <div class="sheet-head">
       <div>
         <div id="sheetFilm" class="sheet-film"></div>

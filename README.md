@@ -33,11 +33,11 @@ offline. Kamera und Lagesensor fragt sie beim ersten Start ab.
 **Funktionen**
 - Live-Sucher mit Filmlook (WebGL2, läuft auf der GPU), Objektive 0,5×/1×/2×/3×
   und Frontkamera, Belichtung per senkrechtem Wischen im Sucher
-- Acht Filme: Pastell 400, Aurum 200, Alltag 400, Vivid 100 (Farbnegativ),
-  Kino 500T und Kino 250D (Kinofilm), Chrom 50 und Chrom 100 (Dia)
-- Physikalisches Modell wie in Filmlab: Schichtübersprechen, Negativdichte,
-  Vergrößerer und Fotopapier bzw. Umkehrkurve, Farbstoff-Nebenabsorptionen;
-  Korn in der Negativdichte, Halation als rötliches Streulicht der
+- 16 Filme: Portra 160/400/800, Ektar 100, Gold 200, Ultramax 400, Pro 400H,
+  C200 (Farbnegativ), Vision3 250D/500T (Kino), Velvia 100, Provia 100F,
+  Ektachrome 100, Kodachrome 64 (Dia) – spektral berechnet, siehe unten –
+  sowie Straße 400 und Silber 100 (Schwarzweiß, analytisches Modell)
+- Korn in der Negativdichte, Halation als rötliches Streulicht der
   Filmrückseite, Lichtlecks als echtes Licht auf dem Film
 - Ausführliche Regler: Belichtung, Temperatur, Tönung, Kontrast, Sättigung,
   Lichter, Verblassen, Korn und Korngröße, Halation und Radius, Bloom,
@@ -56,7 +56,7 @@ offline. Kamera und Lagesensor fragt sie beim ersten Start ab.
 - Schwarzweiß, Rahmenarten (Filmstreifen, Laborabzug, Sofortbild),
   Filmrolle mit 36 Aufnahmen, eigene Looks und Selbstauslöser
 
-**Spektrale Filme:** 14 weitere Filme (Portra 160/400/800, Ektar 100, Gold 200,
+**Spektrale Filme:** Die 14 Farbfilme (Portra 160/400/800, Ektar 100, Gold 200,
 Ultramax 400, Pro 400H, C200, Vision3 250D/500T, Velvia 100, Provia 100F,
 Ektachrome 100, Kodachrome 64) werden spektral berechnet: Szenenspektrum →
 gemessene Schichtempfindlichkeiten → Kennlinien → Farbstoffspektren →
