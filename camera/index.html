@@ -44,6 +44,10 @@
         <div id="vfCount" class="vf-count" hidden></div>
         <div id="vfRec" class="vf-rec" hidden><i></i><span>00:00</span></div>
       </div>
+      <div class="vf-hud">
+        <div id="filmReadout" class="film-readout" aria-live="polite"></div>
+        <div id="lenses" class="lenses glass" role="radiogroup" aria-label="Objektiv"></div>
+      </div>
       <div id="camMsg" class="cam-msg" hidden>
         <p id="camMsgText">Kamera wird gestartet …</p>
         <button id="btnCamRetry" class="btn primary" hidden>Kamera erlauben</button>
@@ -51,8 +55,6 @@
     </div>
 
     <div class="cam-controls">
-      <div id="filmReadout" class="film-readout" aria-live="polite"></div>
-      <div id="lenses" class="lenses glass" role="radiogroup" aria-label="Objektiv"></div>
       <div id="filmStripCam" class="film-strip" role="radiogroup" aria-label="Film"></div>
       <div id="modeSwitch" class="mode-switch glass" role="radiogroup" aria-label="Aufnahmeart">
         <button data-mode="photo" role="radio">Foto</button>

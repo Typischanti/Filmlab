@@ -636,3 +636,46 @@ input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border-radius
   #cam .cam-controls { padding: 8px calc(env(safe-area-inset-right, 0px) + 8px) 8px 0; justify-content: center; min-width: 0; }
   #cam .shutter-row { padding: 0 8px; }
 }
+
+/* ---------- Großer Sucher: Leisten schweben über dem Bild ---------- */
+#cam .topbar {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 6;
+  pointer-events: none;
+}
+#cam .topbar > * { pointer-events: auto; }
+#cam .viewfinder { margin-top: var(--safe-t); }
+.vf-hud {
+  position: absolute; left: 0; right: 0; bottom: 10px; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  pointer-events: none;
+}
+.vf-hud > * { pointer-events: auto; }
+.vf-hud .film-readout {
+  padding: 6px 11px; border-radius: 11px;
+  background: rgba(10, 10, 12, 0.5);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  color: var(--text);
+}
+.vf-hud .film-readout i { color: var(--text-2); }
+.vf-hud .lenses { min-height: 36px; }
+#cam .cam-controls { gap: 8px; padding-top: 8px; }
+#cam .fc-art { height: 44px; }
+#cam .fc-iso { font-size: 17px; }
+#cam .film-name { margin-top: 4px; font-size: 12px; }
+#cam .film-card { padding-bottom: 2px; }
+#cam .mode-switch { width: 150px; padding: 2px; }
+#cam .mode-switch::before { top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); }
+#cam .mode-switch button { height: 24px; font-size: 11px; }
+#cam .shutter-row { padding-top: 0; }
+#cam .shutter { width: 72px; height: 72px; background: radial-gradient(circle, transparent 30px, #fff 31px, #fff 34px, rgba(255, 255, 255, 0.25) 35px); }
+#cam .shutter span { width: 56px; height: 56px; }
+
+@media (orientation: landscape) and (max-height: 520px) {
+  #cam .topbar { position: static; pointer-events: auto; }
+  #cam .viewfinder { margin-top: 0; }
+}
+/* Anzeigen im Sucher unterhalb der schwebenden Leiste */
+#cam .vf-roll, #cam .vf-ev, #cam .vf-rec { top: 62px; }
+/* Belichtung steht in der Datenanzeige unten im Sucher */
+#cam .vf-ev { display: none; }
