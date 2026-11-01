@@ -1,4 +1,4 @@
-# Veröffentlicht Filmlab auf GitHub Pages.
+# Veröffentlicht die Filmkamera auf GitHub Pages (unter …/camera/).
 # Einmalig aktivieren: Repository → Settings → Pages → Source: „GitHub Actions“.
 name: GitHub Pages
 
@@ -27,7 +27,16 @@ jobs:
       - name: Seite zusammenstellen
         run: |
           mkdir -p _site
-          cp -r index.html css js assets camera _site/
+          cp -r camera _site/
+          # Hauptadresse leitet zur Kamera weiter
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>Filmkamera</title>
+          <meta http-equiv="refresh" content="0; url=camera/">
+          <link rel="canonical" href="camera/">
+          <a href="camera/">Zur Filmkamera</a>
+          HTML
       - uses: actions/upload-pages-artifact@v3
       - id: deployment
         uses: actions/deploy-pages@v4

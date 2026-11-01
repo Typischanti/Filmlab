@@ -1,13 +1,13 @@
 {
-  "name": "filmlab",
+  "name": "filmkamera",
   "version": "1.0.0",
-  "description": "Filmnegative in natürliche Positive umwandeln – im Browser oder per Kommandozeile.",
+  "description": "Kamera-App fürs iPhone mit spektraler Filmemulation – Web-App für den Home-Bildschirm.",
   "type": "module",
   "private": true,
   "scripts": {
     "start": "python3 -m http.server 8000",
     "test": "node --test tests/*.test.mjs",
-    "convert": "node tools/filmlab-cli.mjs"
+    "bake-luts": "node tools/spectral/bake-luts.mjs"
   },
   "engines": {
     "node": ">=18"
