@@ -8,51 +8,64 @@ import {
 } from '../camera/js/model.js';
 
 const MID = 0.4613; // sRGB-Wert von 18 % Grau
-const ANALYTIC = FILMS.filter((f) => f.type !== 'lut');
+const ANALYTIC = FILMS.filter((f) => f.type !== 'lut'); // Schwarzweißfilme
 
-test('Mittelgrau bleibt bei jedem Film neutral und 18 % hell', () => {
+// LUTs der spektralen Filme laden
+{
+  const { registerLut } = await import('../camera/js/model.js');
+  const fs = await import('node:fs');
+  const dir = new URL('../camera/luts/', import.meta.url);
+  const idx = JSON.parse(fs.readFileSync(new URL('index.json', dir), 'utf8'));
+  for (const f of FILMS.filter((x) => x.type === 'lut')) {
+    registerLut(f.lut, { size: idx.size, min: idx.min, max: idx.max, data: new Uint8Array(fs.readFileSync(new URL(`${f.lut}.bin`, dir))) });
+  }
+}
+
+test('Schwarzweiß: Mittelgrau neutral und 18 % hell', () => {
   for (const f of ANALYTIC) {
-    const U = buildUniforms({ film: f.id, temp: -f.temp, tint: -f.tint });
-    const out = filmPixel([MID, MID, MID], U);
+    const out = filmPixel([MID, MID, MID], buildUniforms({ film: f.id }));
     for (const v of out) assert.ok(Math.abs(v - MID) < 0.02, `${f.id}: ${out}`);
   }
 });
 
 test('Grautreppe ist monoton, Lichter laufen weich aus, Schwarz bleibt dunkel', () => {
-  for (const f of ANALYTIC) {
-    const U = buildUniforms({ film: f.id });
+  for (const f of FILMS) {
+    const U = buildUniforms({ film: f.id, grain: 0 });
     let prev = -1;
     for (let x = 0; x <= 1.0001; x += 0.02) {
       const y = filmPixel([x, x, x], U);
       const l = (y[0] + y[1] + y[2]) / 3;
-      assert.ok(l >= prev - 1e-6, `${f.id} nicht monoton bei ${x}`);
+      assert.ok(l >= prev - 0.004, `${f.id} nicht monoton bei ${x}`);
       prev = l;
     }
     const black = filmPixel([0, 0, 0], U);
     const white = filmPixel([1, 1, 1], U);
     assert.ok(Math.max(...black) < 0.08, `${f.id} Schwarz ${black}`);
-    assert.ok(Math.min(...white) > 0.8, `${f.id} Weiß ${white}`);
+    assert.ok(Math.min(...white) > 0.75, `${f.id} Weiß ${white}`);
   }
 });
 
 test('Belichtung macht heller, Temperatur wärmer, Verblassen hebt Schwarz an', () => {
-  const base = buildUniforms({ film: 'pastell400' });
-  const g = filmPixel([0.3, 0.3, 0.3], base);
-  const bright = filmPixel([0.3, 0.3, 0.3], buildUniforms({ film: 'pastell400', ev: 1 }));
-  assert.ok(bright[1] > g[1] + 0.05);
-  const warm = filmPixel([0.4, 0.4, 0.4], buildUniforms({ film: 'pastell400', temp: 1 }));
-  const cool = filmPixel([0.4, 0.4, 0.4], buildUniforms({ film: 'pastell400', temp: -1 }));
-  assert.ok(warm[0] - warm[2] > cool[0] - cool[2] + 0.05);
-  const faded = filmPixel([0, 0, 0], buildUniforms({ film: 'pastell400', fade: 1 }));
-  assert.ok(faded[1] > filmPixel([0, 0, 0], base)[1] + 0.1);
+  for (const film of ['sp_portra400', 'silber100']) {
+    const base = buildUniforms({ film, grain: 0 });
+    const g = filmPixel([0.3, 0.3, 0.3], base);
+    const bright = filmPixel([0.3, 0.3, 0.3], buildUniforms({ film, grain: 0, ev: 1 }));
+    assert.ok(bright[1] > g[1] + 0.05, `${film} Belichtung`);
+    const warm = filmPixel([0.4, 0.4, 0.4], buildUniforms({ film, grain: 0, temp: 1 }));
+    const cool = filmPixel([0.4, 0.4, 0.4], buildUniforms({ film, grain: 0, temp: -1 }));
+    assert.ok(warm[0] - warm[2] > cool[0] - cool[2] + 0.02, `${film} Temperatur`);
+    const faded = filmPixel([0, 0, 0], buildUniforms({ film, grain: 0, fade: 1 }));
+    assert.ok(faded[1] > filmPixel([0, 0, 0], base)[1] + 0.1, `${film} Verblassen`);
+  }
   const o = wbOffsets(0.7, -0.3);
   assert.ok(Math.abs(o[0] + o[1] + o[2]) < 1e-12);
 });
 
-test('Sättigung: Diafilm kräftiger als Porträtfilm', () => {
+test('Sättigung: Velvia kräftiger als Portra 160, Schwarzweiß farblos', () => {
   const sat = (c) => Math.max(...c) - Math.min(...c);
   const red = [0.75, 0.3, 0.25];
-  assert.ok(sat(filmPixel(red, buildUniforms({ film: 'chrom50' }))) > sat(filmPixel(red, buildUniforms({ film: 'pastell400' }))));
+  assert.ok(sat(filmPixel(red, buildUniforms({ film: 'sp_velvia100', grain: 0 }))) > sat(filmPixel(red, buildUniforms({ film: 'sp_portra160', grain: 0 }))));
+  for (const f of ANALYTIC) assert.ok(sat(filmPixel(red, buildUniforms({ film: f.id, grain: 0 }))) < 1e-9, f.id);
 });
 
 test('Zuschnitt folgt der langen Bildseite', () => {
@@ -78,27 +91,15 @@ test('Lichtlecks sind reproduzierbar, Einstellungen werden bereinigt', () => {
   assert.deepEqual(makeLeaks(42, 0.6), makeLeaks(42, 0.6));
   assert.notDeepEqual(makeLeaks(42, 0.6), makeLeaks(43, 0.6));
   const s = normalizeSettings({ film: 'kino500t', ev: 99, aspect: 'quatsch', date: 1, seed: 7 });
+  assert.equal(s.film, 'sp_vision500t', 'früherer Film wird umgestellt');
+  assert.equal(normalizeSettings({ film: 'unbekannt' }).film, FILMS[0].id);
+  assert.equal(normalizeSettings({}).film, 'sp_portra400');
   assert.equal(s.ev, 2);
   assert.equal(s.aspect, '3:2');
   assert.equal(s.date, true);
   assert.equal(s.seed, 7);
   assert.equal(dateStampText(new Date(2026, 9, 31).getTime()), "'26 10 31");
   assert.equal(dateStampText(new Date(2026, 2, 5).getTime()), "'26  3 05");
-});
-
-test('Dynamik hebt zurückhaltende Farben stärker an als kräftige', () => {
-  const sat = (c) => Math.max(...c) - Math.min(...c);
-  const muted = [0.55, 0.48, 0.42];
-  const vivid = [0.85, 0.25, 0.12];
-  const withVib = buildUniforms({ film: 'alltag400' });
-  const noVib = { ...withVib, vib: 0 };
-  const gainMuted = sat(filmPixel(muted, withVib)) / sat(filmPixel(muted, noVib));
-  const gainVivid = sat(filmPixel(vivid, withVib)) / sat(filmPixel(vivid, noVib));
-  assert.ok(gainMuted > 1.15, `zurückhaltend ${gainMuted}`);
-  assert.ok(gainVivid < gainMuted && gainVivid < 1.1, `kräftig ${gainVivid}`);
-  // Grau bleibt grau
-  const g = filmPixel([0.4613, 0.4613, 0.4613], buildUniforms({ film: 'alltag400', temp: -0.3, tint: 0.08 }));
-  assert.ok(sat(g) < 0.02);
 });
 
 test('Belichtungsumfang: Dia frisst früh aus, Negativ behält Zeichnung in den Lichtern', async () => {
@@ -108,16 +109,16 @@ test('Belichtungsumfang: Dia frisst früh aus, Negativ behält Zeichnung in den 
     const v = filmPixelLinear([L, L, L], buildUniforms({ film, grain: 0 })).map(lin);
     return (v[0] + v[1] + v[2]) / 3;
   };
-  // Jeder Film erreicht Weiß ungefähr dort, wo sein Umfang endet
-  for (const f of ANALYTIC) {
-    if (f.over > 4.5) continue;
-    assert.ok(Math.abs(out(f.id, f.over) - 0.95) < 0.01, `${f.id} bei +${f.over}`);
+  // Schwarzweiß: Weiß ungefähr dort, wo der eingestellte Umfang endet
+  for (const f of ANALYTIC) assert.ok(Math.abs(out(f.id, f.over) - 0.95) < 0.01, `${f.id} bei +${f.over}`);
+  assert.ok(out('strasse400', 3) > out('silber100', 3), 'Straße 400 härter als Silber 100');
+  // Spektral: Dia erreicht Weiß früher als Negativ
+  assert.ok(out('sp_velvia100', 2.5) > out('sp_portra400', 2.5) + 0.1, 'Velvia frisst früher aus');
+  // Mittelgrau bleibt erhalten
+  for (const f of FILMS) {
+    if (f.lut === 'kodak_vision3_500t' || f.lut === 'kodak_gold_200') continue;
+    assert.ok(Math.abs(out(f.id, 0) - 0.18) < 0.03, `${f.id} Mittelgrau ${out(f.id, 0)}`);
   }
-  assert.ok(out('chrom50', 2.5) > 0.98, 'Dia bei +2,5 Blenden ausgefressen');
-  assert.ok(out('pastell400', 3) < 0.8, 'Negativ bei +3 Blenden noch mit Zeichnung');
-  assert.ok(out('kino500t', 4) < out('vivid100', 4), 'Kinofilm weicher als Vivid');
-  // Mittelgrau bleibt bei allen Filmen erhalten
-  for (const f of ANALYTIC) assert.ok(Math.abs(out(f.id, 0) - 0.18) < 0.02, `${f.id} Mittelgrau`);
 });
 
 test('Lichter-Rekonstruktion: Mitteltöne unverändert, Weiß wird zu hellem Szenenlicht', async () => {

@@ -1,6 +1,6 @@
 // Filmkamera – App-Logik: Bildschirme, Kamera, Galerie, Entwickeln.
 
-import { FILMS, getFilm } from './films.js';
+import { FILMS, getFilm, filmDisplayName, resolveFilmId } from './films.js';
 import {
   ASPECT_LABELS, BORDERS, BORDER_LABELS, DEFAULT_SETTINGS, SLIDERS, normalizeSettings, cropRect, dateStampText,
 } from './model.js';
@@ -20,7 +20,8 @@ const CAM_ASPECTS = ['3:2', '16:9', '2.39'];
 const EDIT_ASPECTS = ['orig', '3:2', '16:9', '2.39'];
 const PREVIEW_SOURCE_MAX = 2048;
 const ROLL_LENGTH = 36;
-const ROLL_MODES = { off: 'Aus', roll: '36 Bilder', lab: '36 Bilder, Entwicklung am Ende' };
+const ROLL_MODES = { off: 'Aus', roll: '36 Bilder', lab: 'Mit Entwicklung' };
+const BORDER_SHORT = { none: 'Ohne', strip: 'Film', print: 'Abzug', instant: 'Sofort' };
 const TIMERS = [0, 3, 10];
 
 // ---------------------------------------------------------------------------
@@ -47,7 +48,11 @@ const state = {
   prefs: { quality: 'high', sound: true, motion: true, timer: 0, roll: 'off', mode: 'photo', videoAudio: true, ...readJson('filmkamera.prefs', {}) },
   recording: null,
   looks: readJson('filmkamera.looks', []),
-  roll: readJson('filmkamera.roll', null), // { id, film, count }
+  roll: (() => {
+    const r = readJson('filmkamera.roll', null); // { id, film, count }
+    if (r) r.film = resolveFilmId(r.film);
+    return r;
+  })(),
   pendingCount: 0,
   screen: 'cam',
   photos: [],
@@ -198,37 +203,45 @@ function stripFor(target) {
   return $(target === 'edit' ? 'filmStripEdit' : 'filmStripCam');
 }
 
+const GROUP_LABELS = { Farbnegativ: 'Negativ', Kino: 'Kino', Dia: 'Dia', Schwarzweiß: 'S/W' };
+
+function filmArt(f, iso = true) {
+  const [a, b, c] = f.swatch;
+  return `<div class="fc-art" style="--a:${a};--b:${b};--c:${c ?? b}">${iso ? `<span class="fc-iso">${f.iso}<small>ISO</small></span><span class="fc-proc">${f.process}</span>` : ''}</div>`;
+}
+
 function buildFilmStrip(target) {
   const container = stripFor(target);
   container.innerHTML = '';
   let lastGroup = null;
   for (const f of FILMS) {
-    const spectral = f.type === 'lut';
-    if (lastGroup !== null && lastGroup !== spectral) {
-      const sep = document.createElement('div');
-      sep.className = 'strip-sep';
-      container.appendChild(sep);
+    if (f.group !== lastGroup) {
+      const label = document.createElement('div');
+      label.className = 'strip-label';
+      label.textContent = GROUP_LABELS[f.group] ?? f.group;
+      container.appendChild(label);
+      lastGroup = f.group;
     }
-    lastGroup = spectral;
     const b = document.createElement('button');
     b.className = 'film-card';
     b.dataset.id = f.id;
     b.setAttribute('role', 'radio');
-    b.innerHTML = `<div class="film-swatch" style="background:linear-gradient(90deg,${f.swatch.join(',')})"></div>
-      <div class="film-name">${f.name}</div><div class="film-meta">${spectral ? `${f.process} · spektral` : f.group}</div>`;
+    b.setAttribute('aria-label', `${f.name}, ${f.group}`);
+    b.innerHTML = `${filmArt(f)}<div class="film-name">${f.name}</div>`;
     b.addEventListener('click', () => pickFilm(target, f.id));
     container.appendChild(b);
   }
-  const sep = document.createElement('div');
-  sep.className = 'strip-sep';
-  container.appendChild(sep);
+  const label = document.createElement('div');
+  label.className = 'strip-label';
+  label.textContent = 'Looks';
+  container.appendChild(label);
   for (const look of state.looks) {
     const f = getFilm(look.settings.film);
     const b = document.createElement('button');
     b.className = 'film-card look';
     b.dataset.look = look.id;
-    b.innerHTML = `<div class="film-swatch" style="background:linear-gradient(90deg,${f.swatch.join(',')})"></div>
-      <div class="film-name"></div><div class="film-meta">Mein Look</div>`;
+    b.innerHTML = `${filmArt(f, false)}<div class="film-name"></div><div class="film-meta">${f.name}</div>`;
+    b.querySelector('.fc-art').insertAdjacentHTML('beforeend', '<span class="fc-iso" style="font-size:15px">★</span>');
     b.querySelector('.film-name').textContent = look.name;
     // Langes Drücken löscht den Look
     let timer = 0, long = false;
@@ -247,7 +260,7 @@ function buildFilmStrip(target) {
   }
   const add = document.createElement('button');
   add.className = 'film-card add';
-  add.innerHTML = '<span><b>+</b>Look sichern</span>';
+  add.innerHTML = '<div class="fc-art"><span>+</span></div><div class="film-name">Look sichern</div>';
   add.addEventListener('click', () => saveLook(target));
   container.appendChild(add);
   markFilmStrip(container, targetSettings(target)?.film, false);
@@ -355,11 +368,22 @@ function closeSheet() {
   state.sheetFor = null;
 }
 
+function sheetSection(body, title) {
+  const h = document.createElement('div');
+  h.className = 'sheet-group';
+  h.textContent = title;
+  const card = document.createElement('div');
+  card.className = 'sheet-card';
+  body.append(h, card);
+  return card;
+}
+
 function buildSheet() {
   const s = sheetSettings();
   if (!s) return;
   const film = getFilm(s.film);
-  $('sheetFilm').textContent = `${film.name} · ${film.process}`;
+  $('sheetFilm').innerHTML = `<span></span><span class="chip">${film.process}</span>`;
+  $('sheetFilm').firstChild.textContent = film.name;
   $('sheetFilmDesc').textContent = film.desc;
   if (film.type === 'lut') {
     const a = document.createElement('a');
@@ -373,52 +397,34 @@ function buildSheet() {
   const body = $('sheetBody');
   body.innerHTML = '';
   let group = '';
+  let card = null;
   for (const def of SLIDERS) {
     if (def.group !== group) {
       group = def.group;
-      const h = document.createElement('div');
-      h.className = 'sheet-group';
-      h.textContent = group;
-      body.appendChild(h);
+      card = sheetSection(body, group);
     }
-    body.appendChild(makeSlider(def));
+    card.appendChild(makeSlider(def));
   }
-  // Schalter
-  const sw = document.createElement('div');
-  sw.className = 'sheet-switches';
-  sw.appendChild(makeSwitch('Datumsstempel', () => sheetSettings().date, (v) => (sheetSettings().date = v)));
-  sw.appendChild(
-    makeSelect('Rahmen', BORDERS.map((b) => [b, BORDER_LABELS[b]]), () => sheetSettings().border, (v) => {
+  // Datum und Rahmen gehören zu den Effekten
+  card.appendChild(makeSwitch('Datumsstempel', () => sheetSettings().date, (v) => (sheetSettings().date = v)));
+  card.appendChild(
+    makeSegmented('Rahmen', BORDERS.map((b) => [b, BORDER_SHORT[b]]), () => sheetSettings().border, (v) => {
       sheetSettings().border = v;
       onSettingsChanged(state.sheetFor);
     }),
   );
-  body.appendChild(sw);
 
   if (state.sheetFor === 'cam') {
-    const h = document.createElement('div');
-    h.className = 'sheet-group';
-    h.textContent = 'Kamera';
-    body.appendChild(h);
-    body.appendChild(
-      makeSwitch('Hohe Auflösung (bis 12 MP)', () => state.prefs.quality === 'high', (v) => {
-        state.prefs.quality = v ? 'high' : 'fast';
-        savePrefs();
-        camera.quality = state.prefs.quality;
-        startCamera();
-      }, true),
-    );
-    body.appendChild(makeSwitch('Auslöseton', () => state.prefs.sound, (v) => { state.prefs.sound = v; savePrefs(); }, true));
-    body.appendChild(makeSwitch('Ton bei Videos (Mikrofon)', () => state.prefs.videoAudio, (v) => { state.prefs.videoAudio = v; savePrefs(); }, true));
-    body.appendChild(
-      makeSelect('Selbstauslöser', TIMERS.map((t) => [String(t), t ? `${t} Sekunden` : 'Aus']), () => String(state.prefs.timer), (v) => {
+    const cam = sheetSection(body, 'Aufnahme');
+    cam.appendChild(
+      makeSegmented('Selbstauslöser', TIMERS.map((t) => [String(t), t ? `${t} s` : 'Aus']), () => String(state.prefs.timer), (v) => {
         state.prefs.timer = Number(v);
         savePrefs();
         syncCamToggles();
       }),
     );
-    body.appendChild(
-      makeSelect('Filmrolle', Object.entries(ROLL_MODES), () => state.prefs.roll, async (v) => {
+    cam.appendChild(
+      makeSegmented('Filmrolle', Object.entries(ROLL_MODES), () => state.prefs.roll, async (v) => {
         const prev = state.prefs.roll;
         state.prefs.roll = v;
         savePrefs();
@@ -437,9 +443,20 @@ function buildSheet() {
         await finishRoll(lab);
         buildSheet();
       });
-      body.appendChild(rw);
+      cam.appendChild(rw);
     }
-    body.appendChild(
+    const dev = sheetSection(body, 'Kamera');
+    dev.appendChild(
+      makeSwitch('Hohe Auflösung (bis 12 MP)', () => state.prefs.quality === 'high', (v) => {
+        state.prefs.quality = v ? 'high' : 'fast';
+        savePrefs();
+        camera.quality = state.prefs.quality;
+        startCamera();
+      }, true),
+    );
+    dev.appendChild(makeSwitch('Auslöseton', () => state.prefs.sound, (v) => { state.prefs.sound = v; savePrefs(); }, true));
+    dev.appendChild(makeSwitch('Ton bei Videos (Mikrofon)', () => state.prefs.videoAudio, (v) => { state.prefs.videoAudio = v; savePrefs(); }, true));
+    dev.appendChild(
       makeSwitch('Querformat erkennen (Lagesensor)', () => state.prefs.motion, (v) => {
         state.prefs.motion = v;
         savePrefs();
@@ -453,6 +470,36 @@ function buildSheet() {
     info.textContent = camera.width ? `Sensor-Stream: ${camera.width} × ${camera.height} px` : '';
     body.appendChild(info);
   }
+}
+
+function makeSegmented(label, options, get, set) {
+  const row = document.createElement('div');
+  row.className = 'seg-row';
+  const span = document.createElement('span');
+  span.textContent = label;
+  const seg = document.createElement('div');
+  seg.className = 'seg';
+  seg.setAttribute('role', 'radiogroup');
+  seg.setAttribute('aria-label', label);
+  const mark = () => {
+    for (const b of seg.children) b.setAttribute('aria-checked', b.dataset.value === get() ? 'true' : 'false');
+  };
+  for (const [value, text] of options) {
+    const b = document.createElement('button');
+    b.dataset.value = value;
+    b.setAttribute('role', 'radio');
+    b.textContent = text;
+    b.addEventListener('click', () => {
+      if (b.dataset.value === get()) return;
+      haptic();
+      set(value);
+      mark();
+    });
+    seg.appendChild(b);
+  }
+  mark();
+  row.append(span, seg);
+  return row;
 }
 
 function makeSlider(def) {
@@ -541,25 +588,8 @@ function makeSwitch(label, get, set, plainPref = false) {
   return row;
 }
 
-function makeSelect(label, options, get, set) {
-  const row = document.createElement('label');
-  row.className = 'select-row';
-  const span = document.createElement('span');
-  span.textContent = label;
-  const sel = document.createElement('select');
-  for (const [value, text] of options) {
-    const o = document.createElement('option');
-    o.value = value;
-    o.textContent = text;
-    sel.appendChild(o);
-  }
-  sel.value = get();
-  sel.addEventListener('change', () => set(sel.value));
-  row.append(span, sel);
-  return row;
-}
-
 $('btnSheetClose').addEventListener('click', closeSheet);
+$('sheetGrab').addEventListener('click', closeSheet);
 $('btnSheetReset').addEventListener('click', () => {
   const s = sheetSettings();
   if (!s) return;
@@ -751,6 +781,10 @@ function syncCamToggles() {
   }
   $('filmStripCam').classList.toggle('locked', rollLocked());
   const video = state.prefs.mode === 'video';
+  const cur = getFilm(s.film);
+  const evTxt = Math.abs(s.ev) >= 0.05 ? ` <i>·</i> <b>${s.ev > 0 ? '+' : ''}${s.ev.toFixed(1).replace('.', ',')} EV</b>` : '';
+  $('filmReadout').innerHTML = `<span>${cur.name.toUpperCase()}</span> <i>·</i> <span>ISO ${cur.iso}</span> <i>·</i> <span>${cur.process}</span>${evTxt}`;
+  $('modeSwitch').dataset.mode = state.prefs.mode;
   for (const b of $('modeSwitch').children) b.setAttribute('aria-checked', b.dataset.mode === state.prefs.mode ? 'true' : 'false');
   $('modeSwitch').classList.toggle('locked', !!state.recording);
   $('btnShutter').classList.toggle('video', video);
@@ -1203,6 +1237,11 @@ function renderGrid() {
   grid.innerHTML = '';
   grid.classList.toggle('selecting', state.selecting);
   $('galleryEmpty').hidden = state.photos.length > 0;
+  const nVid = state.photos.filter((p) => p.kind === 'video').length;
+  const nImg = state.photos.length - nVid;
+  $('galleryCount').textContent = state.photos.length
+    ? [nImg ? `${nImg} ${nImg === 1 ? 'Foto' : 'Fotos'}` : '', nVid ? `${nVid} ${nVid === 1 ? 'Video' : 'Videos'}` : ''].filter(Boolean).join(' · ')
+    : '';
   state.photos.forEach((p, i) => {
     const cell = document.createElement('button');
     cell.className = 'cell';
@@ -1214,7 +1253,7 @@ function renderGrid() {
     if (url) img.src = url;
     const tag = document.createElement('span');
     tag.className = 'film-tag';
-    tag.textContent = getFilm(p.settings?.film).name;
+    tag.textContent = filmDisplayName(p.settings?.film);
     const check = document.createElement('span');
     check.className = 'check';
     cell.append(img, tag, check);
@@ -1314,9 +1353,9 @@ async function loadViewer() {
     show('gallery');
     return;
   }
-  const film = getFilm(p.settings?.film);
+  const filmName = filmDisplayName(p.settings?.film);
   const d = new Date(p.settings?.takenAt ?? p.created);
-  $('viewerTitle').innerHTML = `${film.name}<small>${d.toLocaleDateString('de-DE')} · ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</small>`;
+  $('viewerTitle').innerHTML = `${filmName}<small>${d.toLocaleDateString('de-DE')} · ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</small>`;
   const img = $('viewerImg');
   const vid = $('viewerVideo');
   const isVideo = p.kind === 'video';
@@ -1610,10 +1649,18 @@ camera.onRotation = applyRotation;
 // ---------------------------------------------------------------------------
 // Start
 
+function setTool(el, icon, label) {
+  el.innerHTML = `${ICONS[icon]}<span>${label}</span>`;
+}
+
 function initIcons() {
+  setTool($('btnViewerShare'), 'share', 'Sichern');
+  setTool($('btnViewerEdit'), 'adjust', 'Entwickeln');
+  setTool($('btnViewerDelete'), 'trash', 'Löschen');
+  setIcon($('emptyIcon'), 'roll');
   for (const [id, icon] of [
     ['btnDate', 'date'], ['btnFrame', 'frame'], ['btnLeak', 'leak'], ['btnTimer', 'timer'], ['btnAdjust', 'adjust'], ['btnFlip', 'flip'],
-    ['btnGalleryBack', 'back'], ['btnViewerBack', 'back'], ['btnViewerShare', 'share'], ['btnViewerDelete', 'trash'],
+    ['btnGalleryBack', 'back'], ['btnViewerBack', 'back'],
     ['btnEdDate', 'date'], ['btnEdFrame', 'frame'], ['btnEdLeak', 'leak'], ['btnEdAdjust', 'adjust'], ['btnSheetClose', 'close'],
   ]) setIcon($(id), icon);
 }

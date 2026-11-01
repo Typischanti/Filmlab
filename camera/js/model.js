@@ -11,7 +11,7 @@
 //   Diafilm:     Umkehrkurve mit Fuß/Schulter + Korn
 //   -> Farbstoff-Nebenabsorptionen -> Reflexion 10^-D -> Anzeige
 
-import { getFilm } from './films.js';
+import { getFilm, resolveFilmId } from './films.js';
 
 export const LOG_MID = Math.log10(0.18);
 export const NEG_GAMMA = 0.6;
@@ -34,7 +34,7 @@ export const BORDERS = ['none', 'strip', 'print', 'instant'];
 export const BORDER_LABELS = { none: 'Ohne Rahmen', strip: 'Filmstreifen', print: 'Laborabzug', instant: 'Sofortbild' };
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  film: 'pastell400',
+  film: 'sp_portra400',
   aspect: '3:2',
   ev: 0,
   temp: 0,
@@ -97,6 +97,7 @@ export function normalizeSettings(s) {
   // ältere Fotos: frame: true -> Filmstreifen
   if (s && s.border === undefined && s.frame === true) out.border = 'strip';
   if (!BORDERS.includes(out.border)) out.border = 'none';
+  out.film = resolveFilmId(out.film);
   if (!(out.aspect in ASPECTS)) out.aspect = DEFAULT_SETTINGS.aspect;
   for (const sl of SLIDERS) out[sl.key] = clamp(out[sl.key], sl.min, sl.max);
   return out;
