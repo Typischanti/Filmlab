@@ -129,18 +129,6 @@ function normalizeRows(m) {
   });
 }
 
-// Nebenabsorptionen der Farbstoffe (Zeilen: R, G, B; Spalten: C, M, Y),
-// für Grau neutral normiert.
-const DYES = normalizeRows([
-  [1.0, 0.08, 0.02],
-  [0.22, 1.0, 0.1],
-  [0.08, 0.3, 1.0],
-]);
-
-export function dyeMatrix(strength) {
-  return DYES.map((row, r) => row.map((v, c) => (r === c ? 1 : 0) * (1 - strength) + v * strength));
-}
-
 // Farbfilterung (Weißabgleich) als Verschiebung der Papierbelichtung je
 // Schicht; ohne Mittelwert, damit sich die Helligkeit nicht ändert.
 // Positive Temperatur = wärmer, positive Tönung = magenta.
@@ -262,7 +250,6 @@ function buildLut(film, s, ctx) {
     gain: Math.pow(2, s.ev),
     cross: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
     sat: Math.max(0, 1 + s.saturation * 0.6),
-    vib: 0,
     contrast: Math.pow(2, s.contrast * 0.55),
     // Temperatur/Tönung wie ein Farbfilter vor dem Objektiv
     wbShift: wbOffsets(s.temp, s.tint).map((v) => -v),
@@ -279,8 +266,8 @@ function buildLut(film, s, ctx) {
     leaks: s.leak > 0 ? makeLeaks(s.leakSeed, s.leak) : [],
     seed: (s.seed ?? 0) >>> 0,
     // vom analytischen Modell nicht genutzt
-    negG: [0, 0, 0], lat: 0, printer: [0, 0, 0], lineG: [0, 0, 0], offset: [0, 0, 0],
-    dmid: 0, dmin: 0, dmax: 1, toe: 0.1, shoulder: 0.1, rk: 0, dye: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+    negG: [0, 0, 0], lat: 0, printer: [0, 0, 0], lineG: [0, 0, 0],
+    dmid: 0, dmin: 0, dmax: 1, toe: 0.1, shoulder: 0.1, rk: 0,
   };
 }
 
@@ -333,7 +320,6 @@ function lutPixel(c, U, noise) {
 
 function buildFor(film, s, ctx) {
   const shortSide = ctx.shortSide ?? 1000;
-  const slide = film.type === 'slide';
 
   const sysG = film.gamma * Math.pow(2, s.contrast * 0.55);
   const layers = film.layers;
@@ -345,18 +331,16 @@ function buildFor(film, s, ctx) {
   const dmaxPaper = film.paper.dmax;
   const dmax = dmaxPaper - s.fade * Math.max(0, dmaxPaper - 1.25);
   const U = {
-    type: slide ? 1 : 0,
+    type: 0,
     gain: Math.pow(2, s.ev),
     // S/W: alle Schichten sehen dieselbe spektrale Empfindlichkeit -> neutral
-    cross: film.bw ? normalizeRows([film.spectral, film.spectral, film.spectral]) : normalizeRows(film.cross),
-    sat: Math.max(0, 1 + film.sat + s.saturation * 0.6),
-    vib: film.vibrance ?? 0,
+    cross: normalizeRows([film.spectral, film.spectral, film.spectral]),
+    sat: Math.max(0, 1 + s.saturation * 0.6),
     dmin,
     dmax,
     toe: film.paper.toe * Math.pow(2, -s.highlights * 1.2),
     shoulder: film.paper.shoulder,
     rk: Math.pow(10, -(dmaxPaper - dmin)),
-    dye: dyeMatrix(clamp(film.dyes, 0, 1)),
   };
 
   // Mittelgrau (18 %) soll nach allen Stufen wieder 18 % ergeben.
@@ -364,20 +348,11 @@ function buildFor(film, s, ctx) {
   const dTarget = dmin - Math.log10(reflMid);
   U.dmid = solveLine(dTarget, U);
 
-  if (slide) {
-    U.lineG = layers.map((l) => sysG * l);
-    U.offset = wb.map((o) => sysG * o);
-    U.negG = [0, 0, 0];
-    U.lat = 0;
-    U.printer = [0, 0, 0];
-  } else {
-    U.negG = layers.map((l) => NEG_GAMMA * l);
-    U.lat = film.latitude;
-    U.lineG = [sysG / NEG_GAMMA, sysG / NEG_GAMMA, sysG / NEG_GAMMA];
-    // Vergrößerer: Belichtung je Schicht so, dass Mittelgrau auf dmid fällt.
-    U.printer = U.negG.map((g, k) => negDensity(0, g, U.lat) + wb[k]);
-    U.offset = [0, 0, 0];
-  }
+  U.negG = layers.map((l) => NEG_GAMMA * l);
+  U.lat = film.latitude;
+  U.lineG = [sysG / NEG_GAMMA, sysG / NEG_GAMMA, sysG / NEG_GAMMA];
+  // Vergrößerer: Belichtung je Schicht so, dass Mittelgrau auf dmid fällt.
+  U.printer = U.negG.map((g, k) => negDensity(0, g, U.lat) + wb[k]);
 
   // Korn: Größe relativ zur Bildseite; kleiner als ein Pixel mittelt sich
   // (Rauschamplitude ~ Korngröße/Pixel), damit Vorschau und Export gleich wirken.
@@ -396,16 +371,6 @@ function buildFor(film, s, ctx) {
   return U;
 }
 
-// Sättigung im Log-Raum. Dynamik (vib) verstärkt zurückhaltende Farben
-// mehr als bereits kräftige: Die Zwischenschichteffekte wirken am stärksten
-// bei kleinen Belichtungsunterschieden der Schichten.
-const VIB_WIDTH = 0.3; // log10-Spreizung, ab der die Dynamik abklingt
-
-export function satGain(u, m, U) {
-  const c = Math.max(Math.abs(u[0] - m), Math.abs(u[1] - m), Math.abs(u[2] - m));
-  return U.sat * (1 + U.vib * Math.exp(-c / VIB_WIDTH));
-}
-
 // Referenz-Pixel: sRGB-Wert (0..1) -> sRGB-Ausgabe. noise: Kornrauschen je
 // Schicht, extra: zusätzliches lineares Licht (Halation, Lichtleck).
 export function filmPixel(rgb, U, noise = [0, 0, 0], extra = [0, 0, 0]) {
@@ -419,23 +384,13 @@ export function filmPixelLinear(c, U, noise = [0, 0, 0]) {
   const e = U.cross.map((row) => row[0] * c[0] + row[1] * c[1] + row[2] * c[2]);
   let u = e.map((v) => Math.log10(Math.max(v, E_FLOOR)) - LOG_MID);
   const m = (u[0] + u[1] + u[2]) / 3;
-  u = u.map((v) => m + (v - m) * satGain(u, m, U));
-  let Dl;
-  if (U.type === 1) {
-    Dl = u.map((v, k) => {
-      const d = U.dmid - U.lineG[k] * v + U.offset[k];
-      return d + U.grainAmp * noise[k] * (0.35 + Math.sqrt(Math.max(d - U.dmin, 0)));
-    });
-  } else {
-    Dl = u.map((v, k) => {
-      let dn = negDensity(v, U.negG[k], U.lat);
-      dn += U.grainAmp * noise[k] * (0.35 + Math.sqrt(Math.max(dn, 0)));
-      return U.dmid + U.lineG[k] * (U.printer[k] - dn);
-    });
-  }
-  const D = Dl.map((d) => paperCurve(d, U));
-  const Dv = U.dye.map((row) => row[0] * D[0] + row[1] * D[1] + row[2] * D[2]);
-  return Dv.map((d) => {
+  u = u.map((v) => m + (v - m) * U.sat);
+  const D = u.map((v, k) => {
+    let dn = negDensity(v, U.negG[k], U.lat);
+    dn += U.grainAmp * noise[k] * (0.35 + Math.sqrt(Math.max(dn, 0)));
+    return paperCurve(U.dmid + U.lineG[k] * (U.printer[k] - dn), U);
+  });
+  return D.map((d) => {
     const refl = Math.pow(10, -(d - U.dmin));
     const lin = (refl - U.rk) / (1 - U.rk);
     return linearToSrgb(clamp(lin, 0, 1));

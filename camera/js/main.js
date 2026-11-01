@@ -45,7 +45,7 @@ function writeJson(key, value) {
 
 const state = {
   settings: normalizeSettings(readJson('filmkamera.settings', null)),
-  prefs: { quality: 'high', sound: true, motion: true, timer: 0, roll: 'off', mode: 'photo', videoAudio: true, ...readJson('filmkamera.prefs', {}) },
+  prefs: { quality: 'high', sound: true, motion: true, timer: 0, roll: 'off', mode: 'photo', videoAudio: true, videoHQ: false, ...readJson('filmkamera.prefs', {}) },
   recording: null,
   looks: readJson('filmkamera.looks', []),
   roll: (() => {
@@ -55,6 +55,7 @@ const state = {
   })(),
   pendingCount: 0,
   screen: 'cam',
+  zoom: 1,
   photos: [],
   thumbUrls: new Map(),
   selecting: false,
@@ -456,6 +457,8 @@ function buildSheet() {
     );
     dev.appendChild(makeSwitch('Auslöseton', () => state.prefs.sound, (v) => { state.prefs.sound = v; savePrefs(); }, true));
     dev.appendChild(makeSwitch('Ton bei Videos (Mikrofon)', () => state.prefs.videoAudio, (v) => { state.prefs.videoAudio = v; savePrefs(); }, true));
+    // shortcut: feste 1,5-fache Sucherauflösung; bei Ruckeln auf dem Gerät Faktor senken
+    dev.appendChild(makeSwitch('Video in hoher Auflösung (mehr Akku)', () => state.prefs.videoHQ, (v) => { state.prefs.videoHQ = v; savePrefs(); }, true));
     dev.appendChild(
       makeSwitch('Querformat erkennen (Lagesensor)', () => state.prefs.motion, (v) => {
         state.prefs.motion = v;
@@ -668,6 +671,7 @@ function renderLenses() {
     b.addEventListener('click', async () => {
       if (l.zoom === camera.lens) return;
       haptic();
+      state.zoom = 1;
       try {
         await camera.setLens(l.zoom);
       } catch (err) {
@@ -682,7 +686,23 @@ function renderLenses() {
 camera.onLensesChanged = renderLenses;
 
 function camCrop() {
-  return cropRect(camera.width, camera.height, state.settings.aspect);
+  const c = cropRect(camera.width, camera.height, state.settings.aspect);
+  const z = state.zoom;
+  if (z <= 1) return c;
+  const w = Math.round(c.w / z), h = Math.round(c.h / z);
+  return { x: c.x + Math.round((c.w - w) / 2), y: c.y + Math.round((c.h - h) / 2), w, h };
+}
+
+// Digitaler Zoom auf ein aufgenommenes Bild anwenden (mittiger Ausschnitt).
+function zoomCanvas(src, z) {
+  if (z <= 1) return src;
+  const w = Math.round(src.width / z), h = Math.round(src.height / z);
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  c.getContext('2d').drawImage(src, (src.width - w) / 2, (src.height - h) / 2, w, h, 0, 0, w, h);
+  src.width = src.height = 0;
+  return c;
 }
 
 // Bild samt Rahmen in den verfügbaren Platz einpassen. Der Rahmen liegt als
@@ -711,7 +731,8 @@ function nextFrameNo() {
 }
 
 function layoutCam() {
-  const crop = camCrop();
+  // Layout hängt nur vom Format ab, nicht vom Zoom
+  const crop = cropRect(camera.width, camera.height, state.settings.aspect);
   const s = state.settings;
   const frameNo = nextFrameNo();
   const key = `${crop.w}x${crop.h}|${innerWidth}x${innerHeight}|${s.border}|${s.film}|${frameNo}`;
@@ -744,7 +765,8 @@ function camFrame() {
     layoutCam();
     try {
       renderer.setSource(camera.video, camera.width, camera.height);
-      const k = dpr();
+      // Video in hoher Auflösung: während der Aufnahme größer rechnen
+      const k = dpr() * (state.recording?.q ?? 1);
       renderer.render(state.settings, camCrop(), { w: Math.round(camBox.w * k), h: Math.round(camBox.h * k) }, {
         mirror: camera.mirrored,
         seed: ++frameCounter * 7919,
@@ -783,7 +805,8 @@ function syncCamToggles() {
   const video = state.prefs.mode === 'video';
   const cur = getFilm(s.film);
   const evTxt = Math.abs(s.ev) >= 0.05 ? ` <i>·</i> <b>${s.ev > 0 ? '+' : ''}${s.ev.toFixed(1).replace('.', ',')} EV</b>` : '';
-  $('filmReadout').innerHTML = `<span>${cur.name.toUpperCase()}</span> <i>·</i> <span>ISO ${cur.iso}</span> <i>·</i> <span>${cur.process}</span>${evTxt}`;
+  const zoomTxt = state.zoom > 1.04 ? ` <i>·</i> <b>${state.zoom.toFixed(1).replace('.', ',')}×</b>` : '';
+  $('filmReadout').innerHTML = `<span>${cur.name.toUpperCase()}</span> <i>·</i> <span>ISO ${cur.iso}</span> <i>·</i> <span>${cur.process}</span>${evTxt}${zoomTxt}`;
   $('modeSwitch').dataset.mode = state.prefs.mode;
   for (const b of $('modeSwitch').children) b.setAttribute('aria-checked', b.dataset.mode === state.prefs.mode ? 'true' : 'false');
   $('modeSwitch').classList.toggle('locked', !!state.recording);
@@ -842,6 +865,7 @@ $('btnLeak').addEventListener('click', () => toggleLeak(state.settings, 'cam'));
 $('btnAdjust').addEventListener('click', () => (state.sheetFor === 'cam' ? closeSheet() : openSheet('cam')));
 $('btnFlip').addEventListener('click', async () => {
   haptic();
+  state.zoom = 1;
   try {
     await camera.flip();
   } catch (err) {
@@ -869,15 +893,37 @@ function toggleLeak(s, target) {
   if (state.sheetFor === target) buildSheet();
 }
 
-// Belichtung per senkrechtem Wischen im Sucher
+// Belichtung per senkrechtem Wischen, Zoom mit zwei Fingern
 (() => {
   const el = $('vfFrame');
   let start = null;
+  const pts = new Map();
+  let pinch = null;
+  const dist = () => {
+    const [a, b] = [...pts.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
   el.addEventListener('pointerdown', (e) => {
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch {
+      /* Zeiger schon weg – Geste trotzdem auswerten */
+    }
+    if (pts.size === 2) {
+      start = null; // kein Belichtungswischen während des Zoomens
+      pinch = { d: dist(), z: state.zoom };
+      return;
+    }
     start = { y: e.clientY, ev: state.settings.ev, moved: false };
-    el.setPointerCapture(e.pointerId);
   });
   el.addEventListener('pointermove', (e) => {
+    if (pts.has(e.pointerId)) pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && pts.size === 2) {
+      state.zoom = Math.min(4, Math.max(1, (pinch.z * dist()) / Math.max(pinch.d, 1)));
+      syncCamToggles();
+      return;
+    }
     if (!start) return;
     const dy = start.y - e.clientY;
     if (!start.moved && Math.abs(dy) < 8) return;
@@ -888,7 +934,9 @@ function toggleLeak(s, target) {
       syncCamToggles();
     }
   });
-  const end = () => {
+  const end = (e) => {
+    pts.delete(e.pointerId);
+    if (pts.size < 2) pinch = null;
     if (start?.moved) saveSettings();
     start = null;
   };
@@ -1003,7 +1051,9 @@ async function startRecording() {
   const rot = camera.captureRotation();
   const swap = rot === 90 || rot === 270;
   const even = (v) => Math.max(2, Math.round(v / 2) * 2);
-  const W = even(L.w), H = even(L.h);
+  const q = state.prefs.videoHQ ? 1.5 : 1;
+  const W = even(L.w * q), H = even(L.h * q);
+  const img = { x: L.ix * q, y: L.iy * q, w: geo.px.w * q, h: geo.px.h * q };
   const canvas = document.createElement('canvas');
   canvas.width = swap ? H : W;
   canvas.height = swap ? W : H;
@@ -1014,12 +1064,12 @@ async function startRecording() {
   overlay.height = H;
   const octx = overlay.getContext('2d');
   if (state.settings.border !== 'none') octx.drawImage($('vfBorder'), 0, 0, W, H);
-  if (state.settings.date) drawDateStamp(octx, L.ix, L.iy, geo.px.w, geo.px.h, Date.now());
+  if (state.settings.date) drawDateStamp(octx, img.x, img.y, img.w, img.h, Date.now());
   const rec = new VideoRecorder();
-  state.recording = { rec, canvas, ctx, overlay, rot, W, H, L, px: geo.px, starting: true, settings: { ...state.settings, takenAt: Date.now() } };
+  state.recording = { rec, canvas, ctx, overlay, rot, W, H, L, img, q, starting: true, settings: { ...state.settings, takenAt: Date.now() } };
   composeRecordingFrame();
   try {
-    await rec.start(canvas, { audio: state.prefs.videoAudio });
+    await rec.start(canvas, { audio: state.prefs.videoAudio, bitrate: q > 1 ? 24_000_000 : 12_000_000 });
   } catch (err) {
     state.recording = null;
     toast(`Aufnahme fehlgeschlagen: ${err.message || err}`, true, 5000);
@@ -1045,7 +1095,7 @@ async function startRecording() {
 function composeRecordingFrame() {
   const r = state.recording;
   if (!r) return;
-  const { ctx, canvas, rot, W, H, L, px } = r;
+  const { ctx, canvas, rot, W, H, L, img } = r;
   ctx.save();
   if (rot) {
     ctx.translate(canvas.width / 2, canvas.height / 2);
@@ -1056,7 +1106,7 @@ function composeRecordingFrame() {
   else {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
-    ctx.drawImage(glCanvas, L.ix, L.iy, px.w, px.h);
+    ctx.drawImage(glCanvas, img.x, img.y, img.w, img.h);
   }
   ctx.drawImage(r.overlay, 0, 0);
   ctx.restore();
@@ -1153,7 +1203,7 @@ function capture() {
 
   let src;
   try {
-    src = camera.grabFrame();
+    src = zoomCanvas(camera.grabFrame(), state.zoom);
   } catch (err) {
     toast(`Aufnahme fehlgeschlagen: ${err.message || err}`, true);
     return;
@@ -1245,6 +1295,7 @@ function renderGrid() {
   state.photos.forEach((p, i) => {
     const cell = document.createElement('button');
     cell.className = 'cell';
+    cell.dataset.id = p.id;
     if (state.selected.has(p.id)) cell.classList.add('selected');
     const img = document.createElement('img');
     img.loading = 'lazy';
@@ -1294,7 +1345,9 @@ function toggleSelect(id, cell) {
 function updateSelectBar() {
   $('selectBar').hidden = !state.selecting;
   const n = state.selected.size;
-  $('selCount').textContent = n === 1 ? '1 ausgewählt' : `${n} ausgewählt`;
+  const all = n > 0 && n === state.photos.length;
+  $('btnSelAll').textContent = all ? 'Keine' : 'Alle auswählen';
+  $('btnSelShare').textContent = n ? `Sichern (${n})` : 'Sichern';
   $('btnSelShare').disabled = n === 0 || state.selBlobs.size < n;
   $('btnSelDelete').disabled = n === 0;
   $('btnSelect').textContent = state.selecting ? 'Fertig' : 'Auswählen';
@@ -1308,6 +1361,13 @@ function setSelecting(on) {
 }
 
 $('btnSelect').addEventListener('click', () => setSelecting(!state.selecting));
+$('btnSelAll').addEventListener('click', () => {
+  if (state.selected.size === state.photos.length) {
+    setSelecting(true);
+    return;
+  }
+  for (const p of state.photos) if (!state.selected.has(p.id)) toggleSelect(p.id, $('grid').querySelector(`[data-id="${p.id}"]`));
+});
 $('btnSelShare').addEventListener('click', async () => {
   const files = [...state.selected].map((id) => state.selBlobs.get(id)).filter(Boolean);
   if (!files.length) return;

@@ -13,7 +13,8 @@ offline. Kamera, Mikrofon und Lagesensor fragt sie bei Bedarf ab.
 ## Funktionen
 
 - Live-Sucher mit Filmlook (WebGL2, läuft auf der GPU), Objektive 0,5×/1×/2×/3×
-  und Frontkamera, Belichtung per senkrechtem Wischen im Sucher
+  und Frontkamera, Zoom mit zwei Fingern (bis 4×, digital), Belichtung per
+  senkrechtem Wischen im Sucher
 - 16 Filme: Portra 160/400/800, Ektar 100, Gold 200, Ultramax 400, Pro 400H,
   C200 (Farbnegativ), Vision3 250D/500T (Kino), Velvia 100, Provia 100F,
   Ektachrome 100, Kodachrome 64 (Dia) – spektral berechnet, siehe unten –
@@ -29,10 +30,12 @@ offline. Kamera, Mikrofon und Lagesensor fragt sie bei Bedarf ab.
   sichtbar; Formate 3:2, 16:9 und 2.39:1, Querformat-Erkennung
 - **Video:** aufgenommen wird der fertig entwickelte Sucher mit Film-Look,
   bewegtem Korn, Halation, Rahmen und Datumsstempel, dazu der Ton (MP4 auf
-  dem iPhone, bis 3 Minuten je Clip, Auflösung des Suchers)
+  dem iPhone, bis 3 Minuten je Clip, Auflösung des Suchers oder optional
+  1,5-fach höher)
 - Galerie im Gerät (IndexedDB): Jedes Foto wird mit dem unentwickelten
   Original gespeichert und lässt sich später mit anderem Film oder anderen
-  Reglern neu entwickeln; Sichern in die Fotos-App über das Teilen-Menü
+  Reglern neu entwickeln; Sichern in die Fotos-App über das Teilen-Menü,
+  mit „Alle auswählen“ auch die ganze Galerie auf einmal
 - Import aus der Mediathek in voller Qualität (bis ca. 12 MP)
 - Filmrolle mit 36 Aufnahmen (optional mit „Entwicklung“ am Ende), eigene
   Looks, Selbstauslöser 3/10 s
