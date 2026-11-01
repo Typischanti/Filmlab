@@ -1,7 +1,7 @@
 // Service Worker: App offline verfügbar machen. Netzwerk zuerst (damit
 // Aktualisierungen sofort ankommen), bei Funkloch aus dem Zwischenspeicher.
 
-const CACHE = 'filmkamera-v4';
+const CACHE = 'filmkamera-v5';
 const FILES = [
   './',
   'index.html',
