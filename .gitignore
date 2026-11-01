@@ -1,5 +1,3 @@
 node_modules/
-test-negatives/
 *.log
 .DS_Store
-__pycache__/
