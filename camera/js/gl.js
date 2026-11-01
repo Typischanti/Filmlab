@@ -79,20 +79,17 @@ uniform mat3 uSrcM;
 uniform float uGain;
 uniform mat3 uCross;
 uniform float uSat;
-uniform float uVib;
 uniform int uType;
 uniform vec3 uNegG;
 uniform float uLat;
 uniform vec3 uPrinter;
 uniform vec3 uLineG;
-uniform vec3 uOffset;
 uniform float uDmid;
 uniform float uDmin;
 uniform float uDmax;
 uniform float uToe;
 uniform float uShoulder;
 uniform float uRk;
-uniform mat3 uDye;
 uniform float uGrainAmp;
 uniform float uGrainCell;
 uniform float uGrainColor;
@@ -204,9 +201,7 @@ void main() {
   vec3 e = max(uCross * c, vec3(1e-5));
   vec3 u = log(e) * 0.4342945 - LOG_MID;
   float m = (u.r + u.g + u.b) / 3.0;
-  vec3 du = abs(u - m);
-  float spread = max(du.r, max(du.g, du.b));
-  u = m + (u - m) * (uSat * (1.0 + uVib * exp(-spread / 0.3)));
+  u = m + (u - m) * uSat;
 
   vec3 n = vec3(0.0);
   if (uGrainAmp > 0.0) {
@@ -225,19 +220,12 @@ void main() {
     vec3 lin = toLinear(lutTetra(x));
     o = toSrgb(clamp(lin * (1.0 - 0.1 * uFade) + 0.1 * uFade, 0.0, 1.0));
   } else {
-  vec3 Dl;
-  if (uType == 1) {
-    Dl = uDmid - uLineG * u + uOffset;
-    Dl += uGrainAmp * n * (0.35 + sqrt(max(Dl - uDmin, 0.0)));
-  } else {
-    vec3 dn = uNegG * softplus(u + uLat, 0.3);
-    dn = 2.6 - softplus(2.6 - dn, 0.3);
-    dn += uGrainAmp * n * (0.35 + sqrt(max(dn, 0.0)));
-    Dl = uDmid + uLineG * (uPrinter - dn);
-  }
+  vec3 dn = uNegG * softplus(u + uLat, 0.3);
+  dn = 2.6 - softplus(2.6 - dn, 0.3);
+  dn += uGrainAmp * n * (0.35 + sqrt(max(dn, 0.0)));
+  vec3 Dl = uDmid + uLineG * (uPrinter - dn);
   vec3 D = uDmin + softplus(Dl - uDmin, uToe);
   D = uDmax - softplus(uDmax - D, uShoulder);
-  D = uDye * D;
   vec3 lin = (pow(vec3(10.0), -(D - uDmin)) - uRk) / (1.0 - uRk);
   o = toSrgb(clamp(lin, 0.0, 1.0));
   }
@@ -496,20 +484,17 @@ export class FilmRenderer {
     gl.uniform1f(L.uGain, U.gain);
     gl.uniformMatrix3fv(L.uCross, false, mat3RowsToGl(U.cross));
     gl.uniform1f(L.uSat, U.sat);
-    gl.uniform1f(L.uVib, U.vib);
     gl.uniform1i(L.uType, U.type);
     gl.uniform3fv(L.uNegG, U.negG);
     gl.uniform1f(L.uLat, U.lat);
     gl.uniform3fv(L.uPrinter, U.printer);
     gl.uniform3fv(L.uLineG, U.lineG);
-    gl.uniform3fv(L.uOffset, U.offset);
     gl.uniform1f(L.uDmid, U.dmid);
     gl.uniform1f(L.uDmin, U.dmin);
     gl.uniform1f(L.uDmax, U.dmax);
     gl.uniform1f(L.uToe, U.toe);
     gl.uniform1f(L.uShoulder, U.shoulder);
     gl.uniform1f(L.uRk, U.rk);
-    gl.uniformMatrix3fv(L.uDye, false, mat3RowsToGl(U.dye));
     gl.uniform1f(L.uGrainAmp, U.grainAmp);
     gl.uniform1f(L.uGrainCell, U.grainCell);
     gl.uniform1f(L.uGrainColor, U.grainColor);
