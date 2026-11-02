@@ -151,6 +151,7 @@ export const FILMS = [
     swatch: ['#e9b98f', '#5d8a8c', '#1c2326'],
     type: 'lut',
     lut: 'kodak_vision3_250d',
+    inputContrast: 1, // Kinonegativ auf 2383 ist ohnehin flach
     grain: { amount: 0.032, size: 0.0008, color: 0.4 },
     halation: { amount: 0.7, radius: 0.014, tint: [1.0, 0.28, 0.07] },
     bloom: 0.06,
@@ -165,6 +166,7 @@ export const FILMS = [
     swatch: ['#ff4b3a', '#2b6f8f', '#14222c'],
     type: 'lut',
     lut: 'kodak_vision3_500t',
+    inputContrast: 1, // Kinonegativ auf 2383 ist ohnehin flach
     grain: { amount: 0.05, size: 0.0011, color: 0.5 },
     halation: { amount: 1.6, radius: 0.016, tint: [1.0, 0.28, 0.07] },
     bloom: 0.1,

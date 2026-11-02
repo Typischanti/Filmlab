@@ -228,6 +228,7 @@ export function buildUniforms(settings, ctx = {}) {
 // Effekte wirken wie beim analytischen Modell im Belichtungsraum davor.
 
 const LUTS = new Map();
+const INPUT_CONTRAST = 0.8;
 
 export function registerLut(id, lut) {
   LUTS.set(id, lut); // { size, min, max, data: Uint8Array (sRGB, Rot zuerst) }
@@ -250,7 +251,10 @@ function buildLut(film, s, ctx) {
     gain: Math.pow(2, s.ev),
     cross: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
     sat: Math.max(0, 1 + s.saturation * 0.6),
-    contrast: Math.pow(2, s.contrast * 0.55),
+    // Das iPhone-Bild hat schon eine eigene Kontrastkurve; vor dem Film teilweise
+    // zurücknehmen, sonst wird der Kontrast doppelt angehoben.
+    // film.inputContrast: Ausnahme für Filme, die schon flach genug sind (Vision3)
+    contrast: (film.inputContrast ?? INPUT_CONTRAST) * Math.pow(2, s.contrast * 0.55),
     // Temperatur/Tönung wie ein Farbfilter vor dem Objektiv
     wbShift: wbOffsets(s.temp, s.tint).map((v) => -v),
     highlights: s.highlights,
