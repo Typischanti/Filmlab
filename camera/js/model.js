@@ -29,6 +29,17 @@ export const ASPECTS = {
 
 export const ASPECT_LABELS = { '3:2': '3:2', '16:9': '16:9', '2.39': '2.39:1', orig: 'Original' };
 
+// Szenarien: feste Verschiebungen von Belichtung (EV), Kontrast und Lichtern,
+// zusätzlich zu den Reglern.
+export const SCENES = {
+  auto: { label: 'Standard', ev: 0, contrast: 0, highlights: 0 },
+  sunny: { label: 'Sonnig', ev: -0.2, contrast: -0.35, highlights: -0.4 },
+  overcast: { label: 'Bewölkt', ev: 0.25, contrast: 0.5, highlights: 0.2 },
+  night: { label: 'Nacht', ev: -0.3, contrast: 0.2, highlights: -0.6 },
+  backlight: { label: 'Gegenlicht', ev: 0.7, contrast: -0.4, highlights: -0.7 },
+  deep: { label: 'Satte Schatten', ev: -0.25, contrast: 0.4, highlights: -0.8 },
+};
+
 // Rahmenarten des fertigen Bildes
 export const BORDERS = ['none', 'strip', 'print', 'instant'];
 export const BORDER_LABELS = { none: 'Ohne Rahmen', strip: 'Filmstreifen', print: 'Laborabzug', instant: 'Sofortbild' };
@@ -53,6 +64,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   leakSeed: 1,
   date: false,
   border: 'none',
+  scene: 'auto',
 });
 
 // Regler: Bereich, Schritt, Anzeige. Die Werte sind Abweichungen vom Film
@@ -97,6 +109,7 @@ export function normalizeSettings(s) {
   // ältere Fotos: frame: true -> Filmstreifen
   if (s && s.border === undefined && s.frame === true) out.border = 'strip';
   if (!BORDERS.includes(out.border)) out.border = 'none';
+  if (!(out.scene in SCENES)) out.scene = 'auto';
   out.film = resolveFilmId(out.film);
   if (!(out.aspect in ASPECTS)) out.aspect = DEFAULT_SETTINGS.aspect;
   for (const sl of SLIDERS) out[sl.key] = clamp(out[sl.key], sl.min, sl.max);
@@ -217,6 +230,10 @@ function filmToe(film) {
 
 export function buildUniforms(settings, ctx = {}) {
   const s = normalizeSettings(settings);
+  const sc = SCENES[s.scene];
+  s.ev += sc.ev;
+  s.contrast += sc.contrast;
+  s.highlights += sc.highlights;
   const film = getFilm(s.film);
   if (film.type === 'lut') return buildLut(film, s, ctx);
   return buildFor({ ...film, paper: { ...film.paper, toe: filmToe(film) } }, s, ctx);
@@ -228,7 +245,6 @@ export function buildUniforms(settings, ctx = {}) {
 // Effekte wirken wie beim analytischen Modell im Belichtungsraum davor.
 
 const LUTS = new Map();
-const INPUT_CONTRAST = 0.8;
 
 export function registerLut(id, lut) {
   LUTS.set(id, lut); // { size, min, max, data: Uint8Array (sRGB, Rot zuerst) }
@@ -253,8 +269,7 @@ function buildLut(film, s, ctx) {
     sat: Math.max(0, 1 + s.saturation * 0.6),
     // Das iPhone-Bild hat schon eine eigene Kontrastkurve; vor dem Film teilweise
     // zurücknehmen, sonst wird der Kontrast doppelt angehoben.
-    // film.inputContrast: Ausnahme für Filme, die schon flach genug sind (Vision3)
-    contrast: (film.inputContrast ?? INPUT_CONTRAST) * Math.pow(2, s.contrast * 0.55),
+    contrast: (film.inputContrast ?? 1) * Math.pow(2, s.contrast * 0.55),
     // Temperatur/Tönung wie ein Farbfilter vor dem Objektiv
     wbShift: wbOffsets(s.temp, s.tint).map((v) => -v),
     highlights: s.highlights,
@@ -325,7 +340,7 @@ function lutPixel(c, U, noise) {
 function buildFor(film, s, ctx) {
   const shortSide = ctx.shortSide ?? 1000;
 
-  const sysG = film.gamma * Math.pow(2, s.contrast * 0.55);
+  const sysG = film.gamma * (film.inputContrast ?? 1) * Math.pow(2, s.contrast * 0.55);
   const layers = film.layers;
   // Schwarzweiß: Temperatur/Tönung wirken als leichte Papiertonung
   const wbScale = film.bw ? 0.35 : 1;

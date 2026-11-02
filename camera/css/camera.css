@@ -678,3 +678,17 @@ input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border-radius
 #cam .vf-roll, #cam .vf-ev, #cam .vf-rec { top: 62px; }
 /* Belichtung steht in der Datenanzeige unten im Sucher */
 #cam .vf-ev { display: none; }
+
+/* Szenario-Auswahl im Sucher */
+.hud-row { display: flex; align-items: center; gap: 8px; }
+.scene-select {
+  -webkit-appearance: none; appearance: none;
+  height: 36px; padding: 0 28px 0 13px;
+  border: 0; border-radius: 18px;
+  font: 600 12.5px/1 -apple-system, "SF Pro Text", system-ui, sans-serif;
+  color: var(--text);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23f2a948' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 10px 6px;
+}

@@ -23,6 +23,9 @@ offline. Kamera, Mikrofon und Lagesensor fragt sie bei Bedarf ab.
 - Korn in der Negativdichte, Halation als rötliches Streulicht der
   Filmrückseite, Lichtlecks als echtes Licht auf dem Film, Belichtungsumfang
   je Film (Rekonstruktion der vom iPhone gestauchten Lichter)
+- Alle Filme haben denselben Grundkontrast; dazu Szenarien als Auswahlmenü
+  im Sucher: Standard, Sonnig, Bewölkt, Nacht, Gegenlicht, Satte Schatten
+  (verschieben Belichtung, Kontrast und Lichter)
 - Ausführliche Regler: Belichtung, Temperatur, Tönung, Kontrast, Sättigung,
   Lichter, Verblassen, Korn und Korngröße, Halation und Radius, Bloom,
   Vignette, Lichtleck (mit Würfel für neue Varianten)
