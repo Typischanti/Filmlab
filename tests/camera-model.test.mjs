@@ -61,6 +61,30 @@ test('Belichtung macht heller, Temperatur wärmer, Verblassen hebt Schwarz an', 
   assert.ok(Math.abs(o[0] + o[1] + o[2]) < 1e-12);
 });
 
+test('Alle Filme haben im Mittelton denselben Kontrast', () => {
+  const slope = (film, scene = 'auto') => {
+    const U = buildUniforms({ film, scene, grain: 0 });
+    const Y = (x) => { const v = filmPixel([x, x, x], U); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+    return (Y(0.6) - Y(0.3)) / 0.3;
+  };
+  for (const f of FILMS) assert.ok(Math.abs(slope(f.id) - 1.15) < 0.03, `${f.id}: ${slope(f.id)}`);
+  // Gold 200 Grau bleibt wärmer als Gold 200
+  const mid = (film) => filmPixel([MID, MID, MID], buildUniforms({ film, grain: 0 }));
+  assert.ok(mid('sp_gold200_grau')[0] - mid('sp_gold200_grau')[2] > mid('sp_gold200')[0] - mid('sp_gold200')[2]);
+});
+
+test('Szenarien verschieben Belichtung und Kontrast', () => {
+  const Y = (scene, x) => {
+    const v = filmPixel([x, x, x], buildUniforms({ film: 'sp_portra400', scene, grain: 0 }));
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+  };
+  const con = (scene) => Y(scene, 0.6) - Y(scene, 0.3);
+  assert.ok(con('overcast') > con('auto') && con('sunny') < con('auto'), 'bewölkt härter, sonnig weicher');
+  assert.ok(Y('backlight', 0.1) > Y('auto', 0.1) + 0.03, 'Gegenlicht hellt Schatten auf');
+  assert.ok(Y('deep', 0.1) < Y('auto', 0.1) && Y('deep', 0.9) <= Y('auto', 0.9), 'satte Schatten, Lichter geschont');
+  assert.equal(normalizeSettings({ scene: 'quatsch' }).scene, 'auto');
+});
+
 test('Sättigung: Velvia kräftiger als Portra 160, Schwarzweiß farblos', () => {
   const sat = (c) => Math.max(...c) - Math.min(...c);
   const red = [0.75, 0.3, 0.25];
@@ -113,10 +137,11 @@ test('Belichtungsumfang: Dia frisst früh aus, Negativ behält Zeichnung in den 
   for (const f of ANALYTIC) assert.ok(Math.abs(out(f.id, f.over) - 0.95) < 0.01, `${f.id} bei +${f.over}`);
   assert.ok(out('strasse400', 3) > out('silber100', 3), 'Straße 400 härter als Silber 100');
   // Spektral: Dia erreicht Weiß früher als Negativ
-  assert.ok(out('sp_velvia100', 2.5) > out('sp_portra400', 2.5) + 0.1, 'Velvia frisst früher aus');
+  // bei gleichem Mittelton-Kontrast bleibt der Unterschied kleiner, aber sichtbar
+  assert.ok(out('sp_velvia100', 2.5) > out('sp_portra400', 2.5) + 0.04, 'Velvia frisst früher aus');
   // Mittelgrau bleibt erhalten
   for (const f of FILMS) {
-    if (f.lut === 'kodak_vision3_500t' || f.lut === 'kodak_gold_200') continue;
+    if (f.lut === 'kodak_vision3_500t' || f.lut?.startsWith('kodak_gold_200')) continue;
     assert.ok(Math.abs(out(f.id, 0) - 0.18) < 0.03, `${f.id} Mittelgrau ${out(f.id, 0)}`);
   }
 });
@@ -151,10 +176,11 @@ test('Spektrale Filme: LUTs vollständig, Grau neutral, Mittelgrau erhalten', as
     };
     const m0 = tint(0);
     if (f.lut === 'kodak_vision3_500t') assert.ok(m0.o[2] > m0.o[0] + 0.03, `${f.id} kühl: ${m0.o}`);
-    else if (f.lut === 'kodak_gold_200') assert.ok(m0.o[0] > m0.o[2] + 0.03, `${f.id} golden: ${m0.o}`);
+    else if (f.lut.startsWith('kodak_gold_200')) assert.ok(m0.o[0] > m0.o[2] + 0.03, `${f.id} golden: ${m0.o}`);
     else assert.ok(m0.t < 0.012, `${f.id} Mittelgrau neutral: ${m0.o}`);
     for (const st of [-4, -2, 2, 3]) assert.ok(tint(st).t < 0.15, `${f.id} Stich bei ${st}: ${tint(st).o}`);
     const mid = filmPixelLinear([0.18, 0.18, 0.18], U).map(lin);
-    assert.ok(Math.abs(mid[1] - 0.18) < 0.03, `${f.id} Mittelgrau ${mid[1]}`);
+    const Y = 0.2126 * mid[0] + 0.7152 * mid[1] + 0.0722 * mid[2];
+    assert.ok(Math.abs(Y - 0.18) < 0.03, `${f.id} Mittelgrau ${Y}`);
   }
 });

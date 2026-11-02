@@ -15,13 +15,17 @@ offline. Kamera, Mikrofon und Lagesensor fragt sie bei Bedarf ab.
 - Live-Sucher mit Filmlook (WebGL2, läuft auf der GPU), Objektive 0,5×/1×/2×/3×
   und Frontkamera, Zoom mit zwei Fingern (bis 4×, digital), Belichtung per
   senkrechtem Wischen im Sucher
-- 16 Filme: Portra 160/400/800, Ektar 100, Gold 200, Ultramax 400, Pro 400H,
+- 17 Filme: Portra 160/400/800, Ektar 100, Gold 200, Gold 200 Grau (für
+  bedeckte Tage), Ultramax 400, Pro 400H,
   C200 (Farbnegativ), Vision3 250D/500T (Kino), Velvia 100, Provia 100F,
   Ektachrome 100, Kodachrome 64 (Dia) – spektral berechnet, siehe unten –
   sowie Straße 400 und Silber 100 (Schwarzweiß, analytisches Modell)
 - Korn in der Negativdichte, Halation als rötliches Streulicht der
   Filmrückseite, Lichtlecks als echtes Licht auf dem Film, Belichtungsumfang
   je Film (Rekonstruktion der vom iPhone gestauchten Lichter)
+- Alle Filme haben denselben Grundkontrast; dazu Szenarien als Auswahlmenü
+  im Sucher: Standard, Sonnig, Bewölkt, Nacht, Gegenlicht, Satte Schatten
+  (verschieben Belichtung, Kontrast und Lichter)
 - Ausführliche Regler: Belichtung, Temperatur, Tönung, Kontrast, Sättigung,
   Lichter, Verblassen, Korn und Korngröße, Halation und Radius, Bloom,
   Vignette, Lichtleck (mit Würfel für neue Varianten)
@@ -42,7 +46,7 @@ offline. Kamera, Mikrofon und Lagesensor fragt sie bei Bedarf ab.
 
 ## Spektrale Filme
 
-Die 14 Farbfilme werden spektral berechnet: Szenenspektrum → gemessene
+Die 15 Farbfilme werden spektral berechnet: Szenenspektrum → gemessene
 Schichtempfindlichkeiten → Kennlinien (mit einfachem DIR-Kupplermodell) →
 Farbstoffspektren → Fotopapier bzw. Kinokopierfilm → Normbeobachter. Jeder
 Film wird auf dem zu ihm passenden Papier abgezogen (Portra Endura, Supra

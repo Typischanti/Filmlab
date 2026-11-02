@@ -2,7 +2,7 @@
 
 import { FILMS, getFilm, filmDisplayName, resolveFilmId } from './films.js';
 import {
-  ASPECT_LABELS, BORDERS, BORDER_LABELS, DEFAULT_SETTINGS, SLIDERS, normalizeSettings, cropRect, dateStampText,
+  ASPECT_LABELS, BORDERS, BORDER_LABELS, SCENES, DEFAULT_SETTINGS, SLIDERS, normalizeSettings, cropRect, dateStampText,
 } from './model.js';
 import { FilmRenderer } from './gl.js';
 import { Camera } from './camera.js';
@@ -403,6 +403,7 @@ function buildSheet() {
     if (def.group !== group) {
       group = def.group;
       card = sheetSection(body, group);
+      if (group === SLIDERS[0].group) card.appendChild(makeSceneRow());
     }
     card.appendChild(makeSlider(def));
   }
@@ -473,6 +474,26 @@ function buildSheet() {
     info.textContent = camera.width ? `Sensor-Stream: ${camera.width} × ${camera.height} px` : '';
     body.appendChild(info);
   }
+}
+
+function fillSceneOptions(sel) {
+  for (const [id, sc] of Object.entries(SCENES)) sel.add(new Option(sc.label, id));
+}
+
+function makeSceneRow() {
+  const row = document.createElement('label');
+  row.className = 'select-row';
+  const span = document.createElement('span');
+  span.textContent = 'Szenario';
+  const sel = document.createElement('select');
+  fillSceneOptions(sel);
+  sel.value = sheetSettings().scene;
+  sel.addEventListener('change', () => {
+    sheetSettings().scene = sel.value;
+    onSettingsChanged(state.sheetFor);
+  });
+  row.append(span, sel);
+  return row;
 }
 
 function makeSegmented(label, options, get, set) {
@@ -808,6 +829,7 @@ function syncCamToggles() {
   const zoomTxt = state.zoom > 1.04 ? ` <i>·</i> <b>${state.zoom.toFixed(1).replace('.', ',')}×</b>` : '';
   $('filmReadout').innerHTML = `<span>${cur.name.toUpperCase()}</span> <i>·</i> <span>ISO ${cur.iso}</span> <i>·</i> <span>${cur.process}</span>${evTxt}${zoomTxt}`;
   $('modeSwitch').dataset.mode = state.prefs.mode;
+  $('sceneSelect').value = s.scene;
   for (const b of $('modeSwitch').children) b.setAttribute('aria-checked', b.dataset.mode === state.prefs.mode ? 'true' : 'false');
   $('modeSwitch').classList.toggle('locked', !!state.recording);
   $('btnShutter').classList.toggle('video', video);
@@ -1712,6 +1734,14 @@ camera.onRotation = applyRotation;
 function setTool(el, icon, label) {
   el.innerHTML = `${ICONS[icon]}<span>${label}</span>`;
 }
+
+fillSceneOptions($('sceneSelect'));
+$('sceneSelect').addEventListener('change', () => {
+  state.settings.scene = $('sceneSelect').value;
+  haptic();
+  onSettingsChanged('cam');
+  if (state.sheetFor === 'cam') buildSheet();
+});
 
 function initIcons() {
   setTool($('btnViewerShare'), 'share', 'Sichern');

@@ -15,6 +15,7 @@ repository state 2026-06-07):
   kodak_portra_800                        -> printed on kodak_supra_endura
   kodak_ektar_100                         -> printed on kodak_ultra_endura
   kodak_gold_200                          -> printed on kodak_supra_endura
+  kodak_gold_200 (overcast variant)       -> printed on kodak_ultra_endura
   kodak_ultramax_400                      -> printed on kodak_ektacolor_edge
   fujifilm_pro_400h, fujifilm_c200        -> printed on fujifilm_crystal_archive_typeii
   kodak_vision3_250d, kodak_vision3_500t  -> printed on kodak_2383
@@ -41,6 +42,9 @@ Changes / how they were made
   shifts in shadows and highlights partly remain. Vision3 500T is filtered
   for 3300 K, so daylight scenes stay cool as with uncorrected tungsten film;
   Gold 200 is filtered for 8000 K, giving its typical warm, golden print.
+  The overcast variant of Gold 200 (kodak_gold_200_overcast.bin) is
+  filtered for 10500 K with couplers at 0.55 to add warmth and contrast
+  to flat, cool daylight.
 - Simple DIR inhibitor model added (not part of the profiles): density
   formed above the neutral level in one layer inhibits the other layers;
   neutral exposures keep the measured curves. Strength per stock was set by

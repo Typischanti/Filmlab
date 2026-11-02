@@ -46,7 +46,10 @@
       </div>
       <div class="vf-hud">
         <div id="filmReadout" class="film-readout" aria-live="polite"></div>
-        <div id="lenses" class="lenses glass" role="radiogroup" aria-label="Objektiv"></div>
+        <div class="hud-row">
+          <select id="sceneSelect" class="scene-select glass" aria-label="Szenario"></select>
+          <div id="lenses" class="lenses glass" role="radiogroup" aria-label="Objektiv"></div>
+        </div>
       </div>
       <div id="camMsg" class="cam-msg" hidden>
         <p id="camMsgText">Kamera wird gestartet …</p>
