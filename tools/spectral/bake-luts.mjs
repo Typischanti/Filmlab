@@ -31,6 +31,8 @@ export const STOCK_CONFIG = [
   { stock: 'kodak_portra_800', print: 'kodak_supra_endura', dir: 0.3 },
   { stock: 'kodak_ektar_100', print: 'kodak_ultra_endura', dir: 0.42 },
   { stock: 'kodak_gold_200', print: 'kodak_supra_endura', dir: 0.45, balanceCCT: 8000 },
+  // Für graue Tage: Gold 200 auf kontrastreichem Papier, stark warm gefiltert
+  { id: 'kodak_gold_200_overcast', stock: 'kodak_gold_200', print: 'kodak_ultra_endura', dir: 0.55, balanceCCT: 10500 },
   { stock: 'kodak_ultramax_400', print: 'kodak_ektacolor_edge', dir: 0.38 },
   { stock: 'fujifilm_pro_400h', print: 'fujifilm_crystal_archive_typeii', dir: 0.18 },
   { stock: 'fujifilm_c200', print: 'fujifilm_crystal_archive_typeii', dir: 0.3 },
@@ -41,7 +43,8 @@ export const STOCK_CONFIG = [
   { stock: 'kodak_ektachrome_100', dir: 0.22 },
   { stock: 'kodak_kodachrome_64', dir: 0.3 },
 ];
-export const STOCKS = STOCK_CONFIG.map((c) => c.stock);
+// id: Name der LUT (Standard: der Film), damit ein Film mehrere Abstimmungen haben kann
+export const STOCKS = STOCK_CONFIG.map((c) => c.id ?? c.stock);
 export const BALANCE = 0.5; // halbe Graubalance: Filmcharakter bleibt teilweise
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -54,11 +57,12 @@ function arg(name) {
 
 const srgb = (v) => (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
 
-function bake(dir, stock) {
+function bake(dir, id) {
   const read = (n) => JSON.parse(fs.readFileSync(path.join(dir, `${n}.json`), 'utf8'));
+  const cfg = STOCK_CONFIG.find((c) => (c.id ?? c.stock) === id);
+  const stock = cfg.stock;
   const filmJson = read(stock);
   const film = loadProfile(filmJson);
-  const cfg = STOCK_CONFIG.find((c) => c.stock === stock) ?? {};
   const printId = film.type === 'negative' ? cfg.print ?? film.targetPrint : null;
   const print = printId ? loadProfile(read(printId)) : null;
   const chain = makeChain(film, print, { dir: cfg.dir ?? 0, balance: BALANCE, balanceCCT: cfg.balanceCCT });
@@ -74,8 +78,8 @@ function bake(dir, stock) {
       }
     }
   }
-  fs.writeFileSync(path.join(OUT, `${stock}.bin`), data);
-  return { stock, name: film.name, print: printId, printName: print?.name ?? null, type: film.type, use: filmJson.info.use };
+  fs.writeFileSync(path.join(OUT, `${id}.bin`), data);
+  return { id, stock, name: film.name, print: printId, printName: print?.name ?? null, type: film.type, use: filmJson.info.use };
 }
 
 const dir = arg('--profiles');
@@ -107,14 +111,14 @@ if (process.argv.includes('--worker')) {
         }),
     ),
   );
-  results.sort((a, b) => STOCKS.indexOf(a.stock) - STOCKS.indexOf(b.stock));
+  results.sort((a, b) => STOCKS.indexOf(a.id) - STOCKS.indexOf(b.id));
   const index = {
     size: LUT_SIZE,
     min: LUT_MIN,
     max: LUT_MAX,
     encoding: 'srgb8',
     source: 'Derived from spektrafilm profiles by Andrea Volpato (https://github.com/andreavolpato/spektrafilm), CC BY-SA 4.0',
-    luts: Object.fromEntries(results.map((r) => [r.stock, r])),
+    luts: Object.fromEntries(results.map((r) => [r.id, r])),
   };
   fs.writeFileSync(path.join(OUT, 'index.json'), JSON.stringify(index, null, 2) + '\n');
   console.log(`fertig: ${results.length} LUTs in ${((Date.now() - t0) / 1000).toFixed(0)} s`);

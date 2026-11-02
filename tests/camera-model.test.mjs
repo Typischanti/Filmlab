@@ -61,6 +61,18 @@ test('Belichtung macht heller, Temperatur wärmer, Verblassen hebt Schwarz an', 
   assert.ok(Math.abs(o[0] + o[1] + o[2]) < 1e-12);
 });
 
+test('Gold 200 Grau: mehr Kontrast und Wärme als Gold 200', async () => {
+  const { filmPixelLinear, srgbToLinear: lin } = await import('../camera/js/model.js');
+  const y = (film, st) => {
+    const L = 0.18 * 2 ** st;
+    const o = filmPixelLinear([L, L, L], buildUniforms({ film, grain: 0 })).map(lin);
+    return { Y: 0.2126 * o[0] + 0.7152 * o[1] + 0.0722 * o[2], warm: o[0] - o[2] };
+  };
+  const con = (f) => Math.log10(y(f, 1).Y / y(f, -1).Y);
+  assert.ok(con('sp_gold200_grau') > con('sp_gold200') * 1.15, 'mehr Kontrast');
+  assert.ok(y('sp_gold200_grau', 0).warm > y('sp_gold200', 0).warm, 'wärmer');
+});
+
 test('Sättigung: Velvia kräftiger als Portra 160, Schwarzweiß farblos', () => {
   const sat = (c) => Math.max(...c) - Math.min(...c);
   const red = [0.75, 0.3, 0.25];
@@ -116,7 +128,7 @@ test('Belichtungsumfang: Dia frisst früh aus, Negativ behält Zeichnung in den 
   assert.ok(out('sp_velvia100', 2.5) > out('sp_portra400', 2.5) + 0.1, 'Velvia frisst früher aus');
   // Mittelgrau bleibt erhalten
   for (const f of FILMS) {
-    if (f.lut === 'kodak_vision3_500t' || f.lut === 'kodak_gold_200') continue;
+    if (f.lut === 'kodak_vision3_500t' || f.lut?.startsWith('kodak_gold_200')) continue;
     assert.ok(Math.abs(out(f.id, 0) - 0.18) < 0.03, `${f.id} Mittelgrau ${out(f.id, 0)}`);
   }
 });
@@ -151,10 +163,11 @@ test('Spektrale Filme: LUTs vollständig, Grau neutral, Mittelgrau erhalten', as
     };
     const m0 = tint(0);
     if (f.lut === 'kodak_vision3_500t') assert.ok(m0.o[2] > m0.o[0] + 0.03, `${f.id} kühl: ${m0.o}`);
-    else if (f.lut === 'kodak_gold_200') assert.ok(m0.o[0] > m0.o[2] + 0.03, `${f.id} golden: ${m0.o}`);
+    else if (f.lut.startsWith('kodak_gold_200')) assert.ok(m0.o[0] > m0.o[2] + 0.03, `${f.id} golden: ${m0.o}`);
     else assert.ok(m0.t < 0.012, `${f.id} Mittelgrau neutral: ${m0.o}`);
     for (const st of [-4, -2, 2, 3]) assert.ok(tint(st).t < 0.15, `${f.id} Stich bei ${st}: ${tint(st).o}`);
     const mid = filmPixelLinear([0.18, 0.18, 0.18], U).map(lin);
-    assert.ok(Math.abs(mid[1] - 0.18) < 0.03, `${f.id} Mittelgrau ${mid[1]}`);
+    const Y = 0.2126 * mid[0] + 0.7152 * mid[1] + 0.0722 * mid[2];
+    assert.ok(Math.abs(Y - 0.18) < 0.03, `${f.id} Mittelgrau ${Y}`);
   }
 });
